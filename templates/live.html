@@ -1,0 +1,253 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Live · {{ course.code }}{% endblock %}
+{% block bodyclass %}live-body{% endblock %}
+{% block nav %}{% endblock %}
+{% block mainclass %}live{% endblock %}
+{% block footer %}{% endblock %}
+{% block content %}
+<div class="qr-col">
+  <div class="qr-wrap">
+    <div class="qr-box">
+      <img id="qr" src="{{ url_for('session_qr', session_id=sess.id) }}" alt="Attendance QR code">
+      <div id="stale" style="display:none;position:absolute;inset:0;background:rgba(255,255,255,.92);border-radius:12px;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:1.5rem;color:#b91c1c;font-weight:600;font-size:1.25rem;line-height:1.3">
+        <div>⚠ Connection lost — the code on screen is NOT valid.</div>
+        <div style="font-weight:400;color:#334155;font-size:.95rem;margin-top:.5rem">Reconnecting automatically… check the laptop's Wi‑Fi.</div>
+      </div>
+    </div>
+    <div class="timer"><span id="timer" style="width:100%"></span></div>
+    <div class="small" style="color:#334155">New code in <strong id="secs">{{ ROTATE_SECONDS }}</strong>s — screenshots expire</div>
+  </div>
+</div>
+
+<div class="live-right">
+  <div class="live-head">
+    <div class="sub">{{ course.title }}{% if lecturer_name %} · {{ lecturer_name }}{% endif %}</div>
+    <h1>{{ course.code }} · {{ sess.title }}</h1>
+    <div class="live-meta">
+      Not enrolled yet? Join code: <strong class="join-badge">{{ course.join_code }}</strong> · or open <span id="join-url-txt" class="mono-hi">{{ join_url | replace('https://','') }}</span>
+    </div>
+    <div class="live-rules">Rules: {{ rules }}</div>
+  </div>
+
+  {% if OFFLINE_WIFI or (wifi and wifi.local_mode) %}
+  <div id="wifi-box" class="live-wifi-box{{ '' if (wifi and wifi.ready and wifi.firewall_ok) else ' warn' }}">
+    <span id="wifi-msg">
+    {% if not (wifi and wifi.ready) %}
+      ⚠ <strong>Laptop not connected to Wi‑Fi / Hotspot yet</strong> (currently <code>localhost</code> — phones cannot open localhost). Turn on Laptop Hotspot or join hall Wi‑Fi.
+    {% elif not wifi.firewall_ok %}
+      ⚠ <strong>Windows Firewall may block student phones:</strong> <button type="button" class="live-inline-btn" onclick="fixFirewallNow(this)">Allow in Windows Firewall</button>
+    {% else %}
+      📶 <strong>Classroom Wi‑Fi / Hotspot:</strong> join the same Wi‑Fi or Hotspot on your phone.
+      <span style="color:#94a3b8">No internet on router? Tap <strong>Keep Wi‑Fi</strong> or switch off Mobile Data.</span>
+    {% endif %}
+    </span>
+    <span id="wifi-ctrl">{% if wifi and wifi.candidates|length > 1 %}
+      <select class="live-ip-sel" onchange="switchLiveIp(this.value)" title="Choose which Wi-Fi / Hotspot network students are connected to">
+        <option value="">Auto ({{ wifi.candidates[0].ip }} · {{ wifi.candidates[0].label }})</option>
+        {% for c in wifi.candidates %}
+        <option value="{{ c.ip }}" {{ 'selected' if wifi.override == c.ip }}>{{ c.ip }} ({{ c.label }})</option>
+        {% endfor %}
+      </select>
+    {% endif %}</span>
+  </div>
+  {% endif %}
+
+  <div class="live-code-box">
+    <div class="live-url-prompt">Scan QR, or open on phone &amp; enter code:</div>
+    <div class="url" id="checkin-url">{{ public_checkin_url() }}</div>
+    <div class="shortcode" id="code">------</div>
+  </div>
+
+  <div class="stats live-stats">
+    <div><div class="stat" id="n">0</div><div class="stat-label">checked in</div></div>
+    <div><div class="stat" id="tot">–</div><div class="stat-label">enrolled</div></div>
+    <div><div class="stat" id="elapsed">0</div><div class="stat-label">min elapsed</div></div>
+    <div><div class="stat" id="flags" style="color:#fbbf24">0</div><div class="stat-label">flags</div></div>
+    <div><div class="stat" id="rej" style="color:#f87171">0</div><div class="stat-label">blocked</div></div>
+  </div>
+
+  <div class="live-feed">
+    <div class="live-feed-head"><span>Recent activity</span><span>Live</span></div>
+    <ul class="recent" id="recent"><li class="empty-feed">Waiting for check-ins…</li></ul>
+  </div>
+
+  <div class="actions">
+    <div class="actions-btns">
+      <a class="btn" href="{{ url_for('session_report', session_id=sess.id) }}">View register</a>
+      <form method="post" action="{{ url_for('end_session', session_id=sess.id) }}" onsubmit="return confirm('End attendance for this session?')">
+        <button class="btn danger">End session</button>
+      </form>
+      <button class="btn" id="fs-btn" type="button" onclick="window._toggleAppFs?window._toggleAppFs():(document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen())">Full screen</button>
+    </div>
+    <div class="live-mark">{{ APP_NAME }} · {{ APP_AUTHOR }}</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// The projector never asks the server for "the current QR". It fetches a batch of the next
+// few minutes of codes, keeps itself on SERVER time, and swaps the picture locally at the
+// exact slot boundary. Result: no lag when the code changes, no dependence on the laptop's
+// clock, and a short Wi-Fi outage does not matter.
+const ROT = {{ ROTATE_SECONDS }};
+const tokensUrl = "{{ url_for('session_tokens', session_id=sess.id) }}";
+const statusUrl = "{{ url_for('session_status', session_id=sess.id) }}";
+const reportUrl = "{{ url_for('session_report', session_id=sess.id) }}";
+function ago(s){ s=Math.max(0,Math.round(s)); if(s<60) return s+'s ago'; if(s<3600) return Math.floor(s/60)+' min ago'; if(s<86400) return Math.floor(s/3600)+' h ago'; return Math.floor(s/86400)+' d ago'; }
+
+let offset = 0;                 // server time minus laptop time, seconds
+let everLoaded = false, pageStart = Date.now();
+let batch = new Map();          // slot -> {qr, code}
+let lastSlot = -1, fetching = false, lastBatchAt = 0, seen = new Set();
+let curCheckinUrl = document.getElementById('checkin-url').textContent.trim();
+const qrEl = document.getElementById('qr'), codeEl = document.getElementById('code'),
+      staleEl = document.getElementById('stale'), timerEl = document.getElementById('timer'),
+      secsEl = document.getElementById('secs'), checkinUrlEl = document.getElementById('checkin-url'),
+      joinUrlEl = document.getElementById('join-url-txt'), wifiBoxEl = document.getElementById('wifi-box');
+
+function serverNow(){ return Date.now()/1000 + offset; }
+function slotOf(t){ return Math.floor(t/ROT); }
+
+async function loadBatch(){
+  if (fetching) return;
+  fetching = true;
+  try{
+    const t0 = Date.now();
+    const r = await fetch(tokensUrl, {cache:'no-store'});
+    const d = await r.json();
+    const rtt = (Date.now()-t0)/1000;
+    offset = d.now + rtt/2 - Date.now()/1000;        // server clock, corrected for half the round trip
+    if (d.ended){ location.href = reportUrl; return; }
+    batch = new Map(d.slots.map(x => [x.slot, x]));
+    lastBatchAt = Date.now(); everLoaded = true;
+    lastSlot = -1;                                     // force a redraw with fresh data
+  }catch(e){ /* keep showing what we have; tick() marks the screen stale if it runs out */ }
+  finally{ fetching = false; }
+}
+
+function tick(){
+  const t = serverNow(), s = slotOf(t), remaining = ROT - (t % ROT);
+  timerEl.style.width = (100*remaining/ROT)+'%';
+  secsEl.textContent = Math.ceil(remaining);
+  if (s !== lastSlot){
+    const x = batch.get(s);
+    if (x){
+      qrEl.src = x.qr;                                 // data: URI -> instant, no network
+      codeEl.textContent = x.code.slice(0,3)+' '+x.code.slice(3);
+      staleEl.style.display = 'none';
+      lastSlot = s;
+    } else {
+      // Nothing valid to show. While the very first batch is still downloading the page is
+      // showing the server-rendered QR it loaded with, which is fine - only warn once a batch
+      // has been seen (connection dropped) or the first load is taking unreasonably long.
+      if (everLoaded || Date.now() - pageStart > 15000) staleEl.style.display = 'flex';
+      loadBatch();
+    }
+  }
+  // top up well before we run out (about 2 min left), or every 3 min regardless
+  const left = [...batch.keys()].filter(k => k >= s).length;
+  if (left < 12 || Date.now() - lastBatchAt > 180000) loadBatch();
+}
+
+const setIpUrl = "{{ url_for('api_lecturer_set_ip') }}";
+const fwFixUrl = "{{ url_for('api_lecturer_firewall_fix') }}";
+let lastWifiSig = '', lastWifiState = '';
+
+async function switchLiveIp(ipVal){
+  try{
+    const r = await fetch(setIpUrl, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({lan_ip:ipVal})});
+    const d = await r.json();
+    if (d.ok && d.checkin_url){
+      curCheckinUrl = d.checkin_url;
+      checkinUrlEl.textContent = d.checkin_url;
+      await loadBatch();
+      tick();
+    }
+  }catch(e){}
+}
+
+async function fixFirewallNow(btn){
+  if (btn){ btn.disabled = true; btn.textContent = 'Opening Windows prompt…'; }
+  try{
+    const r = await fetch(fwFixUrl, {method:'POST', headers:{'X-Requested-With':'fetch'}});
+    const d = await r.json();
+    lastWifiState = '';
+    await refresh();
+    if (!d.firewall_ok && btn){ btn.disabled = false; btn.textContent = 'Allow in Windows Firewall'; }
+  }catch(e){
+    if (btn){ btn.disabled = false; btn.textContent = 'Allow in Windows Firewall'; }
+  }
+}
+
+async function refresh(){
+  try{
+    const r = await fetch(statusUrl, {cache:'no-store'});
+    const d = await r.json();
+    if (d.ended){ location.href = reportUrl; return; }
+    if (d.checkin_url && d.checkin_url !== curCheckinUrl){
+      curCheckinUrl = d.checkin_url;
+      checkinUrlEl.textContent = d.checkin_url;
+      if (joinUrlEl && d.join_url) joinUrlEl.textContent = d.join_url.replace(/^https:\/\//, '');
+      loadBatch();
+    }
+    if (wifiBoxEl){
+      const msgEl = document.getElementById('wifi-msg'), ctrlEl = document.getElementById('wifi-ctrl');
+      const fwOk = d.firewall_ok !== false;
+      const stKey = (d.wifi_ready ? '1' : '0') + '|' + (fwOk ? '1' : '0');
+      wifiBoxEl.className = (d.wifi_ready && fwOk) ? 'live-wifi-box' : 'live-wifi-box warn';
+      if (msgEl && stKey !== lastWifiState){
+        lastWifiState = stKey;
+        if (!d.wifi_ready){
+          msgEl.innerHTML = '⚠ <strong>Laptop not connected to Wi‑Fi / Hotspot yet</strong> (currently <code>localhost</code> — phones cannot open localhost). Turn on Laptop Hotspot or join hall Wi‑Fi.';
+        } else if (!fwOk){
+          msgEl.innerHTML = '⚠ <strong>Windows Firewall may block student phones:</strong> <button type="button" class="live-inline-btn" onclick="fixFirewallNow(this)">Allow in Windows Firewall</button>';
+        } else {
+          msgEl.innerHTML = '📶 <strong>Classroom Wi‑Fi / Hotspot:</strong> join the same Wi‑Fi or Hotspot on your phone. <span style="color:#94a3b8">No internet on router? Tap <strong>Keep Wi‑Fi</strong> or switch off Mobile Data.</span>';
+        }
+      }
+      const cands = d.wifi_candidates || [];
+      const sig = JSON.stringify(cands) + '|' + (d.wifi_override || '');
+      if (ctrlEl && sig !== lastWifiSig){
+        lastWifiSig = sig;
+        if (cands.length > 1){
+          const opts = [`<option value="">Auto (${cands[0].ip} · ${cands[0].label})</option>`]
+            .concat(cands.map(c => `<option value="${c.ip}"${d.wifi_override===c.ip?' selected':''}>${c.ip} (${c.label})</option>`)).join('');
+          ctrlEl.innerHTML = `<select class="live-ip-sel" onchange="switchLiveIp(this.value)" title="Choose which Wi-Fi / Hotspot network students are connected to">${opts}</select>`;
+        } else {
+          ctrlEl.innerHTML = '';
+        }
+      }
+    }
+    document.getElementById('n').textContent = d.n_checked;
+    document.getElementById('tot').textContent = d.n_enrolled;
+    document.getElementById('elapsed').textContent = d.elapsed_min;
+    document.getElementById('flags').textContent = d.n_flagged;
+    document.getElementById('rej').textContent = d.n_rejected;
+    const esc = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const ul = document.getElementById('recent'); ul.innerHTML = '';
+    for (const x of d.recent){
+      const li = document.createElement('li');
+      if (!seen.has(x.matric)) { li.className='new'; seen.add(x.matric); }
+      const flagHtml = x.flagged ? ` <span style="color:#fbbf24;font-size:.8rem">⚠ ${esc(x.flag_short||'flagged')}</span>` : '';
+      li.innerHTML = `<span>${esc(x.name)} <span style="color:#64748b">${esc(x.matric)}</span>${flagHtml}</span><span style="color:#94a3b8">${esc(x.status)} · ${ago(x.ago)}</span>`;
+      ul.appendChild(li);
+    }
+    for (const x of d.rejected){
+      const li = document.createElement('li');
+      li.innerHTML = `<span style="color:#f87171">⛔ ${esc(x.name)} <span style="color:#64748b">${esc(x.matric)}</span></span><span style="color:#94a3b8">${esc(x.reason)} · ${ago(x.ago)}</span>`;
+      ul.appendChild(li);
+    }
+    if (!ul.children.length){
+      const li = document.createElement('li');
+      li.className = 'empty-feed';
+      li.textContent = 'Waiting for check-ins…';
+      ul.appendChild(li);
+    }
+  }catch(e){}
+}
+loadBatch().then(tick);
+setInterval(tick, 200);
+setInterval(refresh, 3000);
+refresh();
+</script>
+{% endblock %}

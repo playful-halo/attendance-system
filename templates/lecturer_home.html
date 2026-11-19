@@ -1,0 +1,165 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Courses{% endblock %}
+{% block content %}
+<div class="row spread">
+  <h1>{{ 'Archived courses' if show_archived else ('All courses' if user.role == 'admin' else 'My courses') }}</h1>
+  {% if show_archived %}<a class="btn sm" href="{{ url_for('lecturer_home') }}">← Active courses</a>
+  {% elif n_archived %}<a class="btn sm" href="{{ url_for('lecturer_home', archived=1) }}">Archived ({{ n_archived }})</a>{% endif %}
+</div>
+
+{% if OFFLINE_WIFI and sync_info %}
+<div class="card sync-card">
+  <div class="row spread" style="align-items:flex-start;gap:.8rem">
+    <div style="flex:1;min-width:260px">
+      <h3 style="margin-bottom:.25rem">Classroom Wi‑Fi &amp; Cloud Sync</h3>
+      {% if wifi and wifi.ready %}
+      <div class="small" style="color:#1e40af">
+        📶 <strong>Classroom Wi‑Fi / Hotspot address ready:</strong> <code>{{ wifi.base_url }}</code>
+        <span class="muted">— students on the same Wi‑Fi or Hotspot scan the QR with zero mobile data.</span>
+      </div>
+      {% if not wifi.firewall_ok %}
+      <form method="post" action="{{ url_for('api_lecturer_firewall_fix') }}" class="row" style="gap:.5rem;margin-top:.45rem">
+        <span class="small" style="color:#b45309">⚠ <strong>Windows Firewall has not allowed port 5000 yet</strong> (student phones may time out):</span>
+        <button class="btn sm primary">Allow in Windows Firewall</button>
+      </form>
+      {% endif %}
+      {% else %}
+      <div class="small" style="color:#b45309">
+        ⚠ <strong>Laptop not connected to Wi‑Fi or Hotspot yet</strong> (currently <code>localhost</code> only).
+        Turn on Windows Mobile Hotspot or connect this laptop to the hall's Wi‑Fi router before starting attendance — the QR code updates automatically.
+      </div>
+      {% endif %}
+    </div>
+    <div style="text-align:right">
+      {% if sync_info.unsynced_ended %}
+        <span class="pill late" data-pending-sync="{{ sync_info.unsynced_ended }}">{{ sync_info.unsynced_ended }} completed session{{ 's' if sync_info.unsynced_ended != 1 }} pending sync</span>
+      {% else %}
+        <span class="pill present">✓ All completed sessions synced</span>
+      {% endif %}
+      <div class="muted small" style="margin-top:.2rem">
+        {% if sync_info.last_sync %}Last synced {{ sync_info.last_sync|dt }}{% else %}Not synced with online server yet{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if wifi and wifi.candidates|length > 1 %}
+  <form method="post" action="{{ url_for('lecturer_sync') }}" class="row" style="gap:.5rem;margin-top:.6rem">
+    <input type="hidden" name="action" value="set_ip">
+    <span class="small muted">Network adapter for QR:</span>
+    <select name="lan_ip" style="max-width:280px;padding:.35rem .55rem;font-size:.88rem">
+      <option value="">Auto ({{ wifi.candidates[0].ip }} · {{ wifi.candidates[0].label }})</option>
+      {% for c in wifi.candidates %}
+      <option value="{{ c.ip }}" {{ 'selected' if wifi.override == c.ip }}>{{ c.ip }} ({{ c.label }})</option>
+      {% endfor %}
+    </select>
+    <button class="btn sm">Use address</button>
+  </form>
+  {% endif %}
+
+  <hr style="border:0;border-top:1px solid var(--line);margin:.85rem 0">
+
+  {% if sync_info.has_token %}
+  <div class="row spread" style="gap:.7rem">
+    <div class="small muted">
+      Online HOD server: <code>{{ sync_info.cloud_url }}</code> · <span style="color:#047857;font-weight:500">Auto-sync on</span>
+      <span class="muted">(completed sessions upload automatically whenever internet is available)</span>
+      {% if sync_info.live_count %}<br><em>({{ sync_info.live_count }} live session running now — it will auto-sync once ended.)</em>{% endif %}
+    </div>
+    <form method="post" action="{{ url_for('lecturer_sync') }}" class="inline-form">
+      <button class="btn primary">↻ Sync now (upload sessions &amp; refresh roster)</button>
+    </form>
+  </div>
+  {% else %}
+  <form method="post" action="{{ url_for('lecturer_sync') }}" class="row" style="align-items:flex-end;gap:.6rem">
+    <div style="flex:1;min-width:220px">
+      <label style="margin-top:0">Online HOD server URL</label>
+      <input name="cloud_url" value="{{ sync_info.cloud_url }}" placeholder="https://cscattendance.pythonanywhere.com" required>
+    </div>
+    <div style="min-width:200px">
+      <label style="margin-top:0">Your online password ({{ user.matric }})</label>
+      <input name="cloud_password" type="password" placeholder="Enter once to link laptop" required autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="new-password">
+    </div>
+    <button class="btn primary">Link laptop &amp; sync</button>
+  </form>
+  <p class="help" style="margin-bottom:0">Connect to the internet (e.g. phone hotspot or office Wi‑Fi) once to download your courses and enrolled students, and again after class to upload completed sessions.{% if SHOW_DEMO_LOGINS %} <strong>(Demo preview password for <code>{{ user.matric }}</code> on <code>http://127.0.0.1:5000</code>: <code>{{ 'admin123' if user.role == 'admin' else 'lecturer123' }}</code>)</strong>{% endif %}</p>
+  {% endif %}
+
+  <details style="margin-top:.75rem">
+    <summary class="small muted" style="cursor:pointer">Server settings &amp; offline USB file sync…</summary>
+    <div style="margin-top:.65rem;display:grid;gap:.8rem">
+      {% if sync_info.has_token %}
+      <form method="post" action="{{ url_for('lecturer_sync') }}" class="row" style="align-items:flex-end;gap:.5rem">
+        <div style="flex:1;min-width:220px"><label style="margin-top:0">Online server URL</label><input name="cloud_url" value="{{ sync_info.cloud_url }}"></div>
+        <div style="min-width:190px"><label style="margin-top:0">Online password (only if changed)</label><input name="cloud_password" type="password" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="new-password"></div>
+        <button class="btn sm primary">Save &amp; sync</button>
+        <button class="btn sm" name="action" value="disconnect" formnovalidate>Unlink laptop</button>
+      </form>
+      {% endif %}
+      <div class="row" style="align-items:center;gap:.6rem">
+        <span class="small muted"><strong>Zero internet on this PC?</strong> Transfer via flash drive / phone:</span>
+        <a class="btn sm" href="{{ url_for('export_sessions_json') }}">1. Export pending sessions (.json)</a>
+      </div>
+      <form method="post" action="{{ url_for('import_roster_json') }}" enctype="multipart/form-data" class="row" style="gap:.5rem">
+        <span class="small muted">Import roster (.json) from online server:</span>
+        <input type="file" name="roster_file" accept=".json,application/json" required style="max-width:280px;padding:.3rem">
+        <button class="btn sm">Import roster</button>
+      </form>
+    </div>
+  </details>
+</div>
+{% endif %}
+
+<div class="grid">
+{% for c in courses %}
+  <div class="card">
+    <div class="row spread">
+      <h3 style="margin:0">{{ c.code }}</h3>
+      {% if c.live_session %}<span class="pill onair">Live</span>{% endif %}
+    </div>
+    <div class="muted">{{ c.title }}</div>
+    {% if user.role == 'admin' %}<div class="muted small">{{ c.lecturer }}</div>{% endif %}
+    <div class="muted small" style="margin:.5rem 0 .9rem">{{ c.n_students }} students · {{ c.n_sessions }} sessions · join code <code>{{ c.join_code }}</code></div>
+    <div class="row">
+      <a class="btn" href="{{ url_for('course_page', course_id=c.id) }}">Manage</a>
+      {% if show_archived %}
+      {% elif c.live_session %}
+        <a class="btn primary" href="{{ url_for('live_session', session_id=c.live_session) }}">Open live screen</a>
+      {% else %}
+        <form method="post" action="{{ url_for('start_session', course_id=c.id) }}" class="inline-form">
+          <button class="btn primary">Start attendance</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+</div>
+<div class="card">
+  <h3>Create a course</h3>
+  <form method="post" action="{{ url_for('new_course') }}" class="row">
+    {% if user.role == 'admin' %}
+    <select name="lecturer_id" required style="max-width:260px">
+      <option value="">Lecturer…</option>
+      {% for l in lecturers %}<option value="{{ l.id }}">{{ l.name }} ({{ l.matric }})</option>{% endfor %}
+    </select>
+    {% endif %}
+    <input name="code" placeholder="Course code (CSC301)" required style="max-width:200px">
+    <input name="title" placeholder="Title" required style="max-width:320px">
+    <input name="join_code" placeholder="Join code (optional)" style="max-width:200px">
+    <button class="btn primary">Create</button>
+  </form>
+</div>
+
+{% if not OFFLINE_WIFI %}
+<details class="card" style="padding:.9rem 1.25rem">
+  <summary style="cursor:pointer;font-weight:600;color:var(--muted)">Offline classroom Wi‑Fi sync (for lecture-hall PCs)</summary>
+  <p class="help">Using the Offline Classroom Wi‑Fi app on your laptop? When your laptop has internet, just click <strong>Sync now</strong> inside the laptop app — you don't need the buttons below. Use these only for a hall PC that never connects to the internet:</p>
+  <div class="row" style="gap:.8rem;align-items:center;margin-top:.5rem">
+    <a class="btn sm" href="{{ url_for('export_roster_json') }}">Download my course roster (.json)</a>
+    <form method="post" action="{{ url_for('import_sessions_json') }}" enctype="multipart/form-data" class="row" style="gap:.5rem;margin:0">
+      <input type="file" name="sessions_file" accept=".json,application/json" required style="max-width:280px;padding:.3rem">
+      <button class="btn sm primary">Upload offline sessions (.json)</button>
+    </form>
+  </div>
+</details>
+{% endif %}
+{% endblock %}

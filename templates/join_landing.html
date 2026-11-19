@@ -1,0 +1,20 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Join course{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+<div class="card">
+  {% if course %}
+  <div class="muted small">You've been invited to join</div>
+  <h2 style="margin:.3rem 0">{{ course.code }}</h2>
+  <div style="font-size:1.05rem">{{ course.title }}</div>
+  <div class="muted">{{ course.lecturer }} · {{ course.n_students }} student{{ '' if course.n_students == 1 else 's' }} enrolled</div>
+  <p class="help">Log in with your matric number to enrol. You'll come straight back here afterwards.</p>
+  <a class="btn primary block" href="{{ url_for('login', next=next_url) }}">Log in to join</a>
+  <a class="btn block" href="{{ url_for('register', next=next_url) }}">I don't have an account yet</a>
+  {% else %}
+  <h2>This join link isn't valid</h2>
+  <p class="muted">The code <code>{{ join_code }}</code> doesn't match any course. The lecturer may have changed it — ask them for the new link.</p>
+  <a class="btn block" href="{{ url_for('login') }}">Go to login</a>
+  {% endif %}
+</div>
+{% endblock %}

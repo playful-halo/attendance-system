@@ -1,0 +1,18 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Join course{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="muted small">Join code <code>{{ join_code }}</code> belongs to</div>
+  <h2 style="margin:.3rem 0">{{ course.code }}</h2>
+  <div style="font-size:1.05rem">{{ course.title }}</div>
+  <div class="muted">{{ course.lecturer }} · {{ course.n_students }} student{{ '' if course.n_students == 1 else 's' }} enrolled</div>
+  <p class="help">Is this the course you're taking? If it isn't, go back and check the code with your lecturer.</p>
+  <form method="post" action="{{ url_for('join_course') }}" class="row" style="margin-top:1rem">
+    <input type="hidden" name="join_code" value="{{ join_code }}">
+    <input type="hidden" name="confirm" value="1">
+    <button class="btn primary" style="font-size:1.05rem;padding:.7rem 1.2rem">Yes, enrol me in {{ course.code }}</button>
+    <a class="btn" href="{{ url_for('student_home') }}">No, go back</a>
+  </form>
+</div>
+{% endblock %}

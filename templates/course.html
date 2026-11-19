@@ -1,0 +1,375 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}{{ course.code }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('lecturer_home') }}">← Courses</a>
+<div class="row spread">
+  <h1>{{ course.code }} <small class="muted" style="font-weight:400">{{ course.title }}</small>{% if course.archived %} <span class="pill absent">archived</span>{% endif %}</h1>
+  <a class="btn" href="{{ url_for('export_course', course_id=course.id) }}">Export full register (CSV)</a>
+</div>
+
+{% if OFFLINE_WIFI %}
+  {% if wifi and not wifi.ready %}
+  <div class="wifi-strip warn">
+    ⚠ <strong>Laptop not connected to a classroom Wi‑Fi router yet</strong> (showing <code>localhost</code> only). Connect this laptop to the hall's Wi‑Fi router so students' phones can open the QR link — the address updates automatically.
+  </div>
+  {% elif unsynced_course and sync_info and sync_info.has_token %}
+  <div class="wifi-strip row spread" style="gap:.6rem" data-pending-sync="{{ unsynced_course }}">
+    <span><strong>{{ unsynced_course }} completed session{{ 's' if unsynced_course != 1 }}</strong> in {{ course.code }} pending sync — <em>will upload to <code>{{ sync_info.cloud_url }}</code> automatically once connected to the internet.</em></span>
+    <form method="post" action="{{ url_for('lecturer_sync') }}" class="inline-form">
+      <input type="hidden" name="course_id" value="{{ course.id }}">
+      <button class="btn sm primary">↻ Sync now</button>
+    </form>
+  </div>
+  {% endif %}
+{% endif %}
+
+{% set live = sessions | selectattr('ended_at', 'none') | first %}
+{% if live %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <h3 style="margin-bottom:.3rem"><span class="live-dot" style="display:inline-block;width:.6rem;height:.6rem;border-radius:50%;background:#16a34a;margin-right:.4rem;vertical-align:middle"></span>Session running: {{ live.title }}</h3>
+  <p class="help" style="margin-top:0">Started {{ live.started_at|dt }} · {{ live.n_present }} checked in so far. Only one session can run at a time.</p>
+  <div class="row" style="gap:.6rem">
+    <a class="btn primary" href="{{ url_for('live_session', session_id=live.id) }}">Open live screen</a>
+    <a class="btn" href="{{ url_for('session_report', session_id=live.id) }}">View report</a>
+    <form method="post" action="{{ url_for('end_session', session_id=live.id) }}" onsubmit="return confirm('End attendance for this session?')" style="margin:0">
+      <button class="btn danger">End session</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <h3>Start a new attendance session</h3>
+  <form method="post" action="{{ url_for('start_session', course_id=course.id) }}" class="row">
+    <input name="title" placeholder="Session title (optional, defaults to date/time)" style="max-width:360px">
+    <label style="margin:0">Late after</label>
+    <input name="late_after_min" type="number" value="15" min="0" style="max-width:80px"> <span class="muted">min</span>
+    <button class="btn primary">Start &amp; open projector screen</button>
+  </form>
+  <p class="help">Projected QR rotates every {{ ROTATE_SECONDS }}s; each student can only check in once per session.<br>
+  <strong>Active rules for new sessions:</strong> {{ rules }}</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin-bottom:.3rem">Invite students</h3>
+  <p class="help" style="margin-top:0">Send this link to the class group chat — students tap it, log in once and are enrolled. Or they can type the join code <code>{{ course.join_code }}</code> on their home page.</p>
+  <div class="row" style="align-items:center;gap:.5rem">
+    <input id="join-url" value="{{ join_url }}" readonly onclick="this.select()" style="flex:1;min-width:240px;max-width:520px;font-family:ui-monospace,monospace;font-size:.9rem">
+    <button type="button" class="btn" id="copy-join" data-url="{{ join_url }}">Copy link</button>
+    {% if not OFFLINE_WIFI %}<a class="btn" target="_blank" rel="noopener" href="https://wa.me/?text={{ ('Join ' ~ course.code ~ ' (' ~ course.title ~ ') for attendance: ' ~ join_url ~ ' — log in with your matric number and tap Enrol. Join code if asked: ' ~ course.join_code) | urlencode }}">Share on WhatsApp</a>{% endif %}
+  </div>
+  <form method="post" action="{{ url_for('edit_course', course_id=course.id) }}" style="margin-top:.8rem">
+    <input type="hidden" name="action" value="qr_enrol">
+    <input type="hidden" name="qr_enrol" value="{{ 0 if course.qr_enrol else 1 }}">
+    <div class="row" style="align-items:center;gap:.6rem">
+      <span class="pill {{ 'present' if course.qr_enrol else 'absent' }}">Enrol by scan: {{ 'ON' if course.qr_enrol else 'OFF' }}</span>
+      <button class="btn sm">{{ 'Turn off' if course.qr_enrol else 'Turn on' }}</button>
+    </div>
+    <p class="help" style="margin:.4rem 0 0">{% if course.qr_enrol %}A student who is not yet enrolled can scan the session QR in the hall and enrol with one tap while checking in (all location/network rules still apply). Turn off to restrict check-ins to students you have uploaded or who used the join code.{% else %}Only students on your list can check in. A student who scans without being enrolled is told to get the join code from you.{% endif %}</p>
+  </form>
+</div>
+<script>
+(function(){var b=document.getElementById('copy-join');if(!b)return;b.addEventListener('click',function(){
+  var u=b.dataset.url,done=function(){b.textContent='Copied!';setTimeout(function(){b.textContent='Copy link';},1500);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(done,function(){var i=document.getElementById('join-url');i.select();document.execCommand('copy');done();});}
+  else{var i=document.getElementById('join-url');i.select();document.execCommand('copy');done();}
+});})();
+</script>
+
+{% if OFFLINE_WIFI %}
+<div class="card sync-card">
+  <h3>Classroom Wi‑Fi geofence <span class="pill wifi" style="vertical-align:middle">Active</span></h3>
+  <p class="help" style="margin-top:0">
+    In Offline Classroom Wi‑Fi mode, <strong>the hall's Wi‑Fi router is the geofence</strong>:
+    only phones physically close enough to join this Wi‑Fi ({% if wifi and wifi.ready %}<code>{{ wifi.base_url }}</code>{% else %}connect laptop to hall Wi‑Fi{% endif %}) can load the check‑in link at all — students in hostels cannot reach it, and no GPS popup or mobile data is required.
+    Rotating 10‑second QR codes, device‑sharing detection and spot checks still run as normal.
+  </p>
+</div>
+{% else %}
+<div class="card">
+  <h3>Attendance rules <span class="muted small" style="font-weight:400">— stop links being forwarded to students outside the hall</span></h3>
+  <form method="post" action="{{ url_for('course_rules', course_id=course.id) }}">
+    <div class="row" style="align-items:flex-end">
+      <div style="flex:1;min-width:220px">
+        <label>Lecture hall location (latitude, longitude)</label>
+        <div class="row" style="gap:.5rem">
+          <input name="lat" id="lat" placeholder="latitude" value="{{ course.geo_lat if course.geo_lat is not none else '' }}" style="max-width:150px">
+          <input name="lng" id="lng" placeholder="longitude" value="{{ course.geo_lng if course.geo_lng is not none else '' }}" style="max-width:150px">
+          <button type="button" class="btn sm primary" onclick="toggleMap()">🗺️ Pick on map</button>
+          <button type="button" class="btn sm primary" onclick="phoneLocate()">📱 Set from my phone</button>
+          <button type="button" class="btn sm" onclick="useMyLocation()" title="Laptops have no GPS - this is usually hundreds of metres off">Use this device (rough)</button>
+        </div>
+        <div class="help" id="geo-help"><strong>Pick on map</strong>: click the lecture hall on the map and the coordinates fill in automatically. <strong>Set from my phone</strong>: scan a QR with your phone while standing in the hall for a GPS fix. Leave empty for no geofence.</div>
+        <div id="map-panel" style="display:none;margin-top:.8rem">
+          <div class="row" style="gap:.5rem;margin-bottom:.5rem">
+            <input id="map-search" placeholder="Search a place, e.g. University of Lagos faculty of science" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter'){event.preventDefault();searchPlace();}">
+            <button type="button" class="btn sm" onclick="searchPlace()">Search</button>
+            <span class="small muted" id="map-status">Click the hall to place the pin; drag to adjust.</span>
+          </div>
+          <div id="map" style="height:380px;border-radius:10px;border:1px solid var(--line)"></div>
+        </div>
+        <div id="phone-panel" class="card" style="display:none;margin-top:.8rem;background:#f8fafc">
+          <div class="row" style="align-items:flex-start">
+            <img id="locate-qr" alt="Scan with your phone" style="width:190px;height:190px;background:#fff;border-radius:10px;padding:6px;border:1px solid var(--line)">
+            <div style="flex:1;min-width:220px">
+              <strong>Scan this with your phone</strong>
+              <ol class="small muted" style="padding-left:1.2rem;margin:.4rem 0">
+                <li>Stand inside the lecture hall.</li>
+                <li>Scan the QR with the phone camera (no login needed).</li>
+                <li>Wait for "accurate to about 10–30 m", tap <em>Use this location</em>.</li>
+              </ol>
+              <div id="phone-status" class="small" style="color:#1e40af">⏳ Waiting for your phone… (link valid for 10 minutes)</div>
+              <button type="button" class="btn sm" style="margin-top:.5rem" onclick="stopPhoneLocate()">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <label>Allowed radius</label>
+        <div class="row" style="gap:.4rem"><input name="radius" type="number" min="50" max="2000" value="{{ course.geo_radius_m }}" style="max-width:90px"> <span class="muted">m</span></div>
+        <div class="help">Phones are rarely better than ±30–60 m indoors, so use <strong>100 m</strong> for most halls (minimum 50 m). The check already forgives each phone's reported GPS error, including the error of the saved hall point. Changes apply to a session that is already running.</div>
+      </div>
+      <div>
+        <label>If a student appears outside the geofence</label>
+        <select name="geo_mode" style="max-width:300px">
+          <option value="flag" {{ 'selected' if course.geo_mode != 'block' }}>Flag them (recommended)</option>
+          <option value="block" {{ 'selected' if course.geo_mode == 'block' }}>Reject the check-in</option>
+        </select>
+        <div class="help"><strong>Flag</strong>: they are marked present but shown with ⚠ and the distance, and ranked first for spot checks. Nobody genuinely in the hall is turned away when their phone's location is wrong. <strong>Reject</strong>: strict — the check-in is refused. If a network rule is also on, passing <em>either</em> rule clears the student.</div>
+      </div>
+      <div>
+        <label>Network rule</label>
+        <select name="network_mode" style="max-width:260px">
+          <option value="off" {{ 'selected' if course.network_mode=='off' }}>Off</option>
+          <option value="flag" {{ 'selected' if course.network_mode=='flag' }}>Flag if not on campus network</option>
+          <option value="block" {{ 'selected' if course.network_mode=='block' }}>Block if not on campus network</option>
+        </select>
+        <div class="help">Campus IP ranges are set by the admin under Settings.</div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.8rem">
+      <button class="btn primary">Save rules</button>
+      {% if course.geo_lat is not none %}<button class="btn" name="action" value="clear_geo">Remove geofence</button>{% endif %}
+    </div>
+  </form>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  // ---------- Map picker: click/drag -> lat/lng fields fill in automatically ----------
+  let map = null, marker = null, circle = null;
+  const latEl = document.getElementById('lat'), lngEl = document.getElementById('lng'),
+        radEl = document.querySelector('input[name="radius"]');
+  function setPoint(lat, lng, fromMap){
+    latEl.value = Number(lat).toFixed(6); lngEl.value = Number(lng).toFixed(6);
+    if (!map) return;
+    const ll = [lat, lng];
+    if (!marker){
+      marker = L.marker(ll, {draggable:true}).addTo(map);
+      marker.on('drag', e => { const p = e.target.getLatLng(); latEl.value = p.lat.toFixed(6); lngEl.value = p.lng.toFixed(6); if (circle) circle.setLatLng(p); });
+      marker.on('dragend', () => document.getElementById('map-status').textContent = 'Pin moved. Click Save rules to keep it.');
+    } else marker.setLatLng(ll);
+    if (!circle) circle = L.circle(ll, {radius: Number(radEl.value)||100, color:'#2563eb', fillOpacity:.12}).addTo(map);
+    else circle.setLatLng(ll);
+    if (!fromMap) map.setView(ll, Math.max(map.getZoom(), 17));
+    document.getElementById('map-status').textContent = 'Pin placed at ' + latEl.value + ', ' + lngEl.value + '. Click Save rules to keep it.';
+  }
+  function toggleMap(){
+    const panel = document.getElementById('map-panel');
+    if (panel.style.display === 'block'){ panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    if (typeof L === 'undefined'){ document.getElementById('map-status').textContent = 'Map could not load (no internet access to the map tiles).'; return; }
+    if (!map){
+      map = L.map('map');
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'}).addTo(map);
+      map.on('click', e => setPoint(e.latlng.lat, e.latlng.lng, true));
+      radEl.addEventListener('input', () => { if (circle) circle.setRadius(Number(radEl.value)||100); });
+      if (latEl.value && lngEl.value){ map.setView([+latEl.value, +lngEl.value], 17); setPoint(+latEl.value, +lngEl.value, false); }
+      else {
+        map.setView([9.0820, 8.6753], 6);
+        if (navigator.geolocation) navigator.geolocation.getCurrentPosition(p => map.setView([p.coords.latitude, p.coords.longitude], 15), () => {}, {timeout: 8000});
+      }
+    }
+    setTimeout(() => map.invalidateSize(), 50);
+  }
+  async function searchPlace(){
+    const q = document.getElementById('map-search').value.trim(); if (!q || !map) return;
+    document.getElementById('map-status').textContent = 'Searching…';
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), {headers: {'Accept': 'application/json'}});
+      const d = await r.json();
+      if (!d.length){ document.getElementById('map-status').textContent = 'No results — try a different name, then click the hall on the map.'; return; }
+      map.setView([+d[0].lat, +d[0].lon], 16);
+      document.getElementById('map-status').textContent = 'Found "' + d[0].display_name.split(',')[0] + '". Now click the exact hall to place the pin.';
+    } catch(e){ document.getElementById('map-status').textContent = 'Search unavailable — zoom/drag the map and click the hall.'; }
+  }
+  </script>
+  <script>
+  const OWN_TAB_URL = "{{ (public_base ~ request.path) if public_base else '' }}" || location.href.split('?')[0];
+  function blockedHelp(){
+    return 'This embedded preview does not allow location access. ' +
+      '<a href="' + OWN_TAB_URL + '" target="_blank"><strong>Open this page in its own tab</strong></a>, click the button there ' +
+      'and save — or paste coordinates from Google Maps (right-click the hall on the map; the numbers at the top of the menu are latitude, longitude).';
+  }
+  let pollTimer = null, startLat = null, startLng = null;
+  function phoneLocate(){
+    const panel = document.getElementById('phone-panel'), img = document.getElementById('locate-qr');
+    startLat = document.getElementById('lat').value; startLng = document.getElementById('lng').value;
+    img.src = "{{ url_for('locate_qr', course_id=course.id) }}" + ("{{ url_for('locate_qr', course_id=course.id) }}".includes('?') ? '&' : '?') + 'v=' + Date.now();
+    panel.style.display = 'block';
+    document.getElementById('phone-status').textContent = '⏳ Waiting for your phone… (link valid for 10 minutes)';
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async function(){
+      try {
+        const r = await fetch("{{ url_for('course_geo', course_id=course.id) }}", {cache:'no-store'});
+        const d = await r.json();
+        if (d.lat !== null && (String(d.lat) !== String(startLat) || String(d.lng) !== String(startLng))) {
+          setPoint(d.lat, d.lng, false);
+          document.getElementById('phone-status').innerHTML = '✅ <strong>Received from your phone.</strong> Coordinates filled in — click <em>Save rules</em> below to keep the radius and network settings.';
+          document.getElementById('geo-help').textContent = 'Hall location set from phone. Click Save rules.';
+          clearInterval(pollTimer);
+        }
+      } catch(e) {}
+    }, 2500);
+    setTimeout(function(){ clearInterval(pollTimer); }, 10*60*1000);
+  }
+  function stopPhoneLocate(){ clearInterval(pollTimer); document.getElementById('phone-panel').style.display = 'none'; }
+  function useMyLocation(){
+    const h = document.getElementById('geo-help');
+    if (!navigator.geolocation){ h.textContent = 'This browser cannot provide a location.'; return; }
+    if (!window.isSecureContext){ h.textContent = 'Location needs an https connection.'; return; }
+    h.textContent = 'Getting location… (allow access if the browser asks)';
+    navigator.geolocation.getCurrentPosition(function(p){
+      setPoint(p.coords.latitude, p.coords.longitude, false);
+      const a = Math.round(p.coords.accuracy);
+      if (a > 60) {
+        h.innerHTML = '<span style="color:var(--bad)"><strong>Careful:</strong> this device\'s position is only accurate to about ' + a + ' m (laptops have no GPS). ' +
+                      'If you save this, students inside the hall may be rejected as "outside". Prefer <strong>Set from my phone</strong> while standing in the hall, or click the exact building on the map.</span>';
+      } else {
+        h.textContent = 'Location captured (accurate to about ' + a + ' m). Click Save rules.';
+      }
+    }, function(e){
+      if (/permissions? policy|disabled in this document/i.test(e.message) || (e.code === 1 && window.self !== window.top)) h.innerHTML = blockedHelp();
+      else if (e.code === 1) h.textContent = 'Location permission was denied. Allow it for this site in the browser settings and try again.';
+      else h.textContent = 'Could not get location: ' + e.message;
+    }, {enableHighAccuracy:true, timeout:20000});
+  }
+  </script>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Sessions ({{ n_total }})</h3>
+  <table>
+    <tr><th>Session</th><th>Started</th><th>Present</th><th>Flags</th><th></th></tr>
+    {% for s in sessions %}
+    <tr>
+      <td>{{ s.title }}
+          {% if not s.ended_at %}<span class="pill onair">Live</span>
+          {% elif OFFLINE_WIFI %}{% if s.synced_at %}<span class="pill present">✓ synced</span>{% else %}<span class="pill late">pending sync</span>{% endif %}
+          {% elif s.offline_wifi %}<span class="pill wifi" title="Recorded in Offline Classroom Wi-Fi mode">Wi‑Fi sync</span>{% endif %}</td>
+      <td>{{ s.started_at|dt }}</td>
+      <td>{{ s.n_present }} / {{ students|length }}</td>
+      <td>{% if s.n_flagged %}<span class="pill flag">{{ s.n_flagged }}</span>{% else %}—{% endif %}</td>
+      <td style="white-space:nowrap">{% if s.ended_at %}<a class="btn sm" href="{{ url_for('session_report', session_id=s.id) }}">Report</a>
+          {% else %}<a class="btn sm primary" href="{{ url_for('live_session', session_id=s.id) }}">Live screen</a>{% endif %}
+          <form method="post" action="{{ url_for('delete_session', session_id=s.id) }}" class="inline-form">
+            <button class="btn sm" title="Delete this session and its records" onclick="return confirm('Delete session \'{{ s.title }}\' and all {{ s.n_present }} check-in(s)? This cannot be undone.')" aria-label="Delete session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg></button>
+          </form></td>
+    </tr>
+    {% else %}<tr><td colspan="5" class="muted">No sessions yet.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h3>Enrolled students <span class="count">(<span id="stu-count">{{ students|length }}</span>)</span></h3>
+  <div class="search-row">
+  <div class="search-box"><input class="search" data-filter="#students" data-count="#stu-count" placeholder="Search name or matric…" autocomplete="off"><button type="button" class="search-clear" aria-label="Clear search">&times;</button></div>
+  <div class="chips">
+    <button type="button" class="chip active" data-chip-for="#students" data-status="">All</button>
+    <button type="button" class="chip" data-chip-for="#students" data-status="low">Below 75%</button>
+    <button type="button" class="chip" data-chip-for="#students" data-status="caught">Caught absent</button>
+  </div>
+</div>
+  {% if live %}<p class="help" style="margin-top:-.4rem"><strong>Now</strong> shows who has checked in to the session running right now ({{ live_now|length }} of {{ students|length }} so far). Attendance % covers the {{ n_ended }} finished session(s); today's session is added when you end it.</p>{% endif %}
+  <table id="students">
+    <tr><th>Matric</th><th>Name</th>{% if live %}<th>Now</th>{% endif %}<th>Attendance</th><th>Spot checks</th><th>Actions</th></tr>
+    {% for st in students %}
+    {% set pct = ([100 * st.attended / n_ended, 100]|min) if n_ended else 0 %}
+    <tr data-search="{{ st.matric }} {{ st.name }}" data-status="{% if n_ended and pct < 75 %}low {% endif %}{% if st.caught %}caught{% endif %}"><td>{{ st.matric }}</td><td>{{ st.name }}</td>
+        {% if live %}<td style="white-space:nowrap">{% if st.id in live_now %}<span class="pill present">✓ {{ (live_now[st.id]|tm)[:5] }}</span>{% else %}<span class="muted small">—</span>{% endif %}</td>{% endif %}
+        <td style="min-width:180px">{{ st.attended }}/{{ n_ended }} ({{ pct|round|int }}%)<div class="bar"><span style="width:{{ pct }}%"></span></div></td>
+        <td>{% if st.caught %}<span class="pill absent">caught absent ×{{ st.caught }}</span>{% else %}<span class="muted small">—</span>{% endif %}</td>
+        <td style="white-space:nowrap">
+          <form method="post" action="{{ url_for('lecturer_reset_password', course_id=course.id) }}" class="inline-form">
+            <input type="hidden" name="student_id" value="{{ st.id }}">
+            <button class="btn sm" onclick="return confirm('Reset {{ st.name }}\'s password to their matric number? They will have to choose a new one at next login.')">Reset password</button>
+          </form>
+          <form method="post" action="{{ url_for('unenrol_student', course_id=course.id) }}" class="inline-form">
+            <input type="hidden" name="student_id" value="{{ st.id }}">
+            <button class="btn sm" onclick="return confirm('Remove {{ st.name }} from {{ course.code }}? Past check-ins are kept.')">Remove</button>
+          </form>
+        </td></tr>
+    {% endfor %}
+  </table>
+  <div class="no-match">No student matches that search.</div>
+  <details style="margin-top:1rem">
+    <summary class="btn sm">Bulk enrol students</summary>
+    <form method="post" action="{{ url_for('bulk_enrol', course_id=course.id) }}">
+      <label>One per line: <code>MATRIC</code> or <code>MATRIC, Full Name</code>. Unknown matric numbers get an account (password = matric number).</label>
+      <textarea name="matrics" rows="6" placeholder="CSC/2022/010, Ada Lovelace&#10;CSC/2022/011, Alan Turing"></textarea>
+      <button class="btn primary" style="margin-top:.6rem">Enrol</button>
+    </form>
+  </details>
+</div>
+
+<div class="card">
+  <h3>Enrolment changes</h3>
+  {% if changes %}
+  <table>
+    <tr><th>When</th><th>Student</th><th>Change</th></tr>
+    {% for ev in changes %}
+    <tr><td class="muted small" style="white-space:nowrap">{{ ev.at|dt }}</td>
+        <td>{{ ev.matric }} <span class="muted">{{ ev.name }}</span></td>
+        <td>{% if ev.action == 'joined' %}<span class="pill present">joined</span> with the join code
+            {% elif ev.action == 'qr' %}<span class="pill present">joined</span> by scanning the session QR
+            {% elif ev.action == 'bulk' %}<span class="pill present">enrolled</span> by {{ ev.by_name or 'lecturer' }} (list upload)
+            {% elif ev.action == 'left' %}<span class="pill late">left</span> the course
+            {% else %}<span class="pill absent">removed</span> by {{ ev.by_name or 'lecturer' }}{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="help">Students can leave a course themselves (not during a live session). Their past check-ins are always kept.</p>
+  {% else %}<p class="muted small">No joins or departures recorded yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3>Course settings</h3>
+  <form method="post" action="{{ url_for('edit_course', course_id=course.id) }}" class="row" style="align-items:flex-end">
+    <div><label>Course code</label><input name="code" value="{{ course.code }}" required style="max-width:140px"></div>
+    <div style="flex:1;min-width:200px"><label>Title</label><input name="title" value="{{ course.title }}" required></div>
+    <div><label>Join code</label><input name="join_code" value="{{ course.join_code }}" required style="max-width:140px"></div>
+    {% if lecturers %}
+    <div><label>Lecturer</label><select name="lecturer_id" style="max-width:220px">{% for l in lecturers %}<option value="{{ l.id }}" {{ 'selected' if l.id==course.lecturer_id }}>{{ l.name }} ({{ l.matric }})</option>{% endfor %}</select></div>
+    {% endif %}
+    <button class="btn primary">Save</button>
+    <button class="btn" name="action" value="regen_join" title="Use if the join code has leaked">New join code</button>
+  </form>
+
+  <details style="margin-top:1.2rem">
+    <summary class="btn sm" style="color:var(--bad)">Archive or delete this course</summary>
+    <div class="row" style="margin-top:.8rem;align-items:flex-start;gap:2rem">
+      <form method="post" action="{{ url_for('archive_course', course_id=course.id) }}">
+        <strong>{{ 'Restore' if course.archived else 'Archive' }}</strong>
+        <p class="help" style="max-width:320px">{% if course.archived %}Bring the course back into the active list.{% else %}Recommended at the end of a semester. Hides the course from active lists; every session and check-in is kept and can still be exported.{% endif %}</p>
+        <button class="btn">{{ 'Restore course' if course.archived else 'Archive course' }}</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_course', course_id=course.id) }}">
+        <strong>Delete permanently</strong>
+        <p class="help" style="max-width:320px">{% if n_total and user.role != 'admin' %}This course has {{ n_total }} session(s) with attendance records, so only an admin can delete it. Use Archive instead.{% else %}Removes the course, its enrolments{% if n_total %}, and all {{ n_total }} session(s) of attendance records{% endif %}. Cannot be undone. Type <code>{{ course.code }}</code> to confirm.{% endif %}</p>
+        {% if not n_total or user.role == 'admin' %}
+        <div class="row" style="gap:.4rem"><input name="confirm" placeholder="{{ course.code }}" style="max-width:160px"><button class="btn danger">Delete course</button></div>
+        {% endif %}
+      </form>
+    </div>
+  </details>
+</div>
+{% endblock %}

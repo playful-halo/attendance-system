@@ -1,0 +1,87 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Log in{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+<p class="login-brand center muted small">{{ APP_NAME }}{% if OFFLINE_WIFI %} · Offline Classroom Wi‑Fi{% endif %} · built by {{ APP_AUTHOR }}</p>
+{% if cookie_fail %}
+<div class="flash error">
+  <strong>Your password was correct, but your browser refused to keep you signed in.</strong><br>
+  This happens when the app is shown inside an embedded frame and the browser blocks its cookies.
+  <a class="btn primary sm" href="#" target="_blank" onclick="this.href=location.href.split('?')[0]" style="margin-top:.5rem;display:inline-block">Open in a new tab and log in there</a>
+</div>
+{% endif %}
+<div id="cookie-warn" class="flash error" style="display:none">
+  Cookies appear to be blocked in this view, so logging in will not work here.
+  <a href="#" target="_blank" onclick="this.href=location.href.split('?')[0]"><strong>Open in a new tab</strong></a> instead.
+</div>
+<script>
+  document.cookie = location.protocol === 'https:'
+    ? "cktest=1; SameSite=None; Secure; Path=/"
+    : "cktest=1; SameSite=Lax; Path=/";
+  if (!/cktest=1/.test(document.cookie)) {
+    document.getElementById('cookie-warn').style.display = 'block';
+  }
+</script>
+
+{% if OFFLINE_WIFI and is_localhost and needs_setup %}
+<div class="card sync-card">
+  <h3 style="margin-bottom:.3rem">First-time laptop setup</h3>
+  <p class="help" style="margin-top:0">Connect this laptop to the internet once, confirm your online server address below, and sign in with your normal <strong>Staff ID &amp; password</strong> — your courses and student list will download automatically.</p>
+  <label style="margin-top:.4rem">Online attendance server</label>
+  <input name="cloud_url" form="login-form" value="{{ cloud_url }}" placeholder="https://cscattendance.pythonanywhere.com">
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Log in</h2>
+  <form method="post" id="login-form">
+    <input type="hidden" name="next" value="{{ next }}">
+    {% if OFFLINE_WIFI and is_localhost %}
+      <input type="hidden" name="cloud_bootstrap" value="1">
+      {% if not needs_setup %}<input type="hidden" name="cloud_url" value="{{ cloud_url }}">{% endif %}
+    {% endif %}
+    <label>Matric / Staff number</label>
+    <input name="matric" required autocapitalize="characters" autocorrect="off" spellcheck="false" autofocus autocomplete="username" placeholder="CSC/2022/001">
+    <label>Password</label>
+    <input name="password" type="password" required autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <p class="help" style="margin:.3rem 0 0">First time here after your lecturer enrolled you? Your temporary password is your matric number.</p>
+    <button class="btn primary block">{% if OFFLINE_WIFI and is_localhost and needs_setup %}Link laptop &amp; log in{% else %}Log in{% endif %}</button>
+  </form>
+  <p class="help center">New student? <a href="{{ url_for('register', next=next or None) }}">Create an account</a><br>
+  Forgot your password? Ask your lecturer (or the department admin) to reset it — you'll log in with your matric number and then choose a new password.</p>
+</div>
+
+{% if OFFLINE_WIFI and is_localhost %}
+<details class="card small" style="padding:.85rem 1.1rem">
+  <summary style="cursor:pointer;font-weight:600;color:var(--muted)">No internet on this computer? Import a roster file{% if needs_setup %} or create a local lecturer account{% endif %}</summary>
+  <form method="post" action="{{ url_for('offline_initial_setup') }}" enctype="multipart/form-data" style="margin-top:.7rem">
+    <input type="hidden" name="mode" value="import_roster">
+    <label style="margin-top:0">Course roster file (<code>.json</code>) from the online server</label>
+    <div class="row" style="gap:.5rem">
+      <input type="file" name="roster_file" accept=".json,application/json" required style="flex:1">
+      <button class="btn sm primary">Import roster</button>
+    </div>
+  </form>
+  {% if needs_setup %}
+  <hr style="border:0;border-top:1px solid var(--line);margin:.9rem 0">
+  <form method="post" action="{{ url_for('offline_initial_setup') }}">
+    <input type="hidden" name="mode" value="local_account">
+    <strong>Standalone offline lecturer account</strong>
+    <p class="help" style="margin:.2rem 0 .5rem">Use this only if you are not connecting to an online HOD server at all.</p>
+    <label>Staff ID</label><input name="matric" required placeholder="STAFF001">
+    <label>Full name</label><input name="name" required placeholder="Dr. Adaeze Okonkwo">
+    <label>Password (min 6 chars)</label><input name="password" type="password" required>
+    <button class="btn sm" style="margin-top:.6rem">Create offline account</button>
+  </form>
+  {% endif %}
+</details>
+{% endif %}
+
+{% if SHOW_DEMO_LOGINS %}
+<div class="card small muted">
+  <strong>Demo accounts</strong> (password in brackets)<br>
+  Lecturer: <code>STAFF001</code> (lecturer123) · Admin: <code>admin</code> (admin123)<br>
+  Students: <code>CSC/2022/001</code> … <code>004</code> (student123)
+</div>
+{% endif %}
+{% endblock %}

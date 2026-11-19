@@ -1,0 +1,208 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Check in{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+{% if sess %}
+<div class="card center">
+  <div class="muted small">You are checking in to</div>
+  <h2 style="margin:.3rem 0">{{ course.code }}</h2>
+  <div class="muted">{{ course.title }}<br>{{ sess.title }}</div>
+  {% if rules and rules != 'no location or network rules' %}<div class="help">Rules: {{ rules }}</div>{% endif %}
+
+  {% if need_enrol and not can_enrol %}
+  <div class="flash error" style="margin:1rem 0 0;text-align:left">
+    <strong>You're not enrolled in {{ course.code }}.</strong><br>
+    This course only accepts students on the lecturer's list. Ask {{ course.lecturer }} for the join code, enter it under
+    <a href="{{ url_for('student_home') }}">Join a course</a>, then scan the screen again.
+  </div>
+  {% elif need_enrol %}
+  <div class="flash" style="margin:1rem 0 0;border-color:#fcd34d;background:#fffbeb;color:#78350f;text-align:left">
+    <strong>You're not enrolled in {{ course.code }} yet.</strong><br>
+    <label style="display:flex;gap:.5rem;align-items:flex-start;margin-top:.5rem;cursor:pointer">
+      <input type="checkbox" id="enrol-box" checked style="margin-top:.25rem">
+      <span>Enrol me in <strong>{{ course.code }} – {{ course.title }}</strong> ({{ course.lecturer }}) and mark my attendance.</span>
+    </label>
+    <div class="small" style="margin-top:.4rem">Wrong hall? Untick this and close the page. You can leave a course any time from your home page.</div>
+  </div>
+  {% endif %}
+
+  {% if need_geo %}
+  <div id="geo-box" class="flash" style="margin:1rem 0 0;border-color:#bfdbfe;background:#eff6ff;color:#1e3a8a;text-align:left">
+    <div id="geo-msg">📍 Getting your location… (tap <strong>Allow</strong> if your phone asks)</div>
+    <ol id="geo-steps" class="small" style="display:none;margin:.6rem 0 0;padding-left:1.2rem;line-height:1.5"></ol>
+    <button type="button" id="geo-retry" class="btn primary" style="display:none;margin-top:.7rem;width:100%">📍 Turn on location &amp; try again</button>
+  </div>
+  {% endif %}
+
+  {% if not (need_enrol and not can_enrol) %}
+  <form method="post" id="confirm-form" style="margin-top:1rem">
+    <input type="hidden" name="k" value="{{ ticket }}">
+    {% if need_enrol %}<input type="hidden" name="enrol" id="enrol-val" value="1">{% endif %}
+    <input type="hidden" name="lat" id="lat"><input type="hidden" name="lng" id="lng"><input type="hidden" name="acc" id="acc">
+    <input type="hidden" name="hw_sig" id="hw-sig"><input type="hidden" name="alt_dev" id="alt-dev">
+    <button class="btn primary block" id="confirm-btn" style="font-size:1.1rem;padding:.9rem" {% if need_geo %}disabled{% endif %}>
+      {% if need_enrol %}Enrol &amp; confirm — I am {{ user.name }}{% else %}Confirm — I am {{ user.name }}{% endif %}
+    </button>
+  </form>
+  <script>
+  (function(){
+    try {
+      var ua = navigator.userAgent || '';
+      var os = (/iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) ? 'ios'
+             : /Android/i.test(ua) ? 'android'
+             : /Win/i.test(navigator.platform || ua) ? 'win'
+             : /Mac/i.test(navigator.platform || ua) ? 'mac' : 'other';
+      var sw = (window.screen && screen.width) || 0, sh = (window.screen && screen.height) || 0;
+      var lo = Math.min(sw, sh), hi = Math.max(sw, sh), dpr = Math.round((window.devicePixelRatio || 1) * 100);
+      var hwEl = document.getElementById('hw-sig');
+      if (hwEl && lo > 0 && hi > 0) hwEl.value = os + '|' + lo + 'x' + hi + '@' + dpr;
+      var altEl = document.getElementById('alt-dev');
+      if (altEl && window._attOrigDev) altEl.value = window._attOrigDev;
+    } catch(e) {}
+  })();
+  </script>
+  {% if need_enrol %}
+  <script>
+  (function(){var b=document.getElementById('enrol-box'),v=document.getElementById('enrol-val'),btn=document.getElementById('confirm-btn');
+    b.addEventListener('change',function(){v.value=b.checked?'1':'0';if(!b.checked)btn.disabled=true;else if(!document.getElementById('geo-box')||document.getElementById('lat').value)btn.disabled=false;});})();
+  </script>
+  {% endif %}
+  {% endif %}
+  <p class="help">Not you? <a href="{{ url_for('logout', s=None) }}">Log out</a> and sign in with your own account.</p>
+</div>
+
+{% if need_geo %}
+<script>
+(function(){
+  const msg = document.getElementById('geo-msg'), box = document.getElementById('geo-box'),
+        steps = document.getElementById('geo-steps'), retry = document.getElementById('geo-retry'),
+        btn = document.getElementById('confirm-btn');
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/i.test(ua);
+  const isSamsung = /SamsungBrowser/i.test(ua);
+  let best = null, busy = false, permState = null;
+
+  function paint(kind){
+    const c = {info:['#eff6ff','#bfdbfe','#1e3a8a'], ok:['#f0fdf4','#bbf7d0','#166534'], bad:['#fef2f2','#fecaca','#991b1b'], warn:['#fffbeb','#fde68a','#92400e']}[kind];
+    box.style.background=c[0]; box.style.borderColor=c[1]; box.style.color=c[2];
+  }
+  function show(kind, text, list, label){
+    paint(kind); msg.innerHTML = text;
+    steps.innerHTML = ''; (list||[]).forEach(function(t){ const li=document.createElement('li'); li.innerHTML=t; steps.appendChild(li); });
+    steps.style.display = list && list.length ? 'block' : 'none';
+    retry.style.display = label ? 'block' : 'none'; if (label) retry.textContent = label;
+    btn.disabled = !best;
+  }
+
+  // ---- phone-specific instructions ----
+  function stepsLocationOff(){
+    if (isIOS) return ['Open <strong>Settings → Privacy &amp; Security → Location Services</strong> and switch it <strong>on</strong>.',
+                       'In the same list, tap <strong>Safari Websites</strong> (or your browser) → <strong>While Using the App</strong>.',
+                       'Come back here and tap the button below.'];
+    if (isAndroid) return ['Swipe down from the top of the screen and tap the <strong>Location</strong> tile so it is on (or Settings → Location → On).',
+                           'Come back here and tap the button below.'];
+    return ['Turn on location services on your device, then tap the button below.'];
+  }
+  function stepsSiteBlocked(){
+    if (isIOS) return ['Open <strong>Settings → Privacy &amp; Security → Location Services</strong>. Make sure it is <strong>on</strong>, then scroll to <strong>Safari Websites</strong> and choose <strong>While Using the App</strong> (turn <strong>Precise Location</strong> on too).',
+                       'If it was already on: tap <strong>AA</strong> (or ⋯) in the address bar → <strong>Website Settings</strong> → <strong>Location → Allow</strong>.',
+                       'Come back to this page and tap the button below — it will reload and ask again.'];
+    if (isAndroid) return ['Tap the <strong>' + (isSamsung ? '☰ / lock' : '🔒 or ⚙') + ' icon</strong> at the left of the address bar → <strong>Permissions</strong> → <strong>Location → Allow</strong>.',
+                           'Make sure the phone\'s <strong>Location</strong> tile (swipe down) is on.',
+                           'Come back here and tap the button below.'];
+    return ['Allow location for this site in your browser\'s site settings, then tap the button below.'];
+  }
+
+  function use(pos){
+    const c = pos.coords;
+    // Newest reasonable fix wins. Indoors the first fix is often Wi-Fi/cell based and can be
+    // confidently wrong (claims ±20 m, is 1 km out); real GPS arrives a few seconds later at ±30-50 m
+    // in the right place. Keeping "lowest accuracy ever" would discard that correction.
+    if (!best || c.accuracy <= 100 || c.accuracy < best.accuracy) best = c;
+    document.getElementById('lat').value = best.latitude;
+    document.getElementById('lng').value = best.longitude;
+    document.getElementById('acc').value = Math.round(best.accuracy);
+    if (best.accuracy > 1000) {
+      show('warn', '📍 <strong>Your phone is only sharing a rough position</strong> (±' + Math.round(best.accuracy/1000) + ' km), which cannot confirm you are in the hall. Turn on precise location, then come back:',
+           isIOS ? ['Tap <strong>AA</strong> in the address bar → <strong>Website Settings</strong> → switch <strong>Precise Location</strong> on.',
+                    'Or Settings → Privacy &amp; Security → Location Services → <strong>Safari Websites</strong> → <strong>Precise Location</strong> on.']
+                 : ['Long-press the <strong>Location</strong> tile → turn on <strong>Google Location Accuracy</strong> / precise location, and make sure the browser has <strong>Precise</strong> location permission.'],
+           'I\'ve turned it on — try again');
+      btn.disabled = false;  // still allowed to try; the server explains if it cannot accept it
+      busy = false; return;
+    }
+    show('ok', '📍 Location found (accurate to about ' + Math.round(best.accuracy) + ' m). You can confirm now.');
+    busy = false;
+  }
+  function onErr(e){
+    busy = false;
+    if (best) return;
+    if (e.code === 1) denied = true;
+    const embedded = /permissions? policy|disabled in this document/i.test(e.message || '') || (e.code === 1 && window.self !== window.top);
+    if (embedded) {
+      show('bad', 'Location is blocked because this page is embedded in another page. Open the link directly in your phone\'s browser (scan the QR with the camera app) and try again.');
+    } else if (e.code === 1) {
+      if (permState === 'denied') {
+        show('bad', '🚫 <strong>Location is blocked for this site.</strong> This course requires it. Unblock it:', stepsSiteBlocked(), 'I\'ve allowed it — try again');
+      } else if (isIOS) {
+        // iOS reports "denied" both when the site was refused and when Location Services is off
+        show('warn', '📵 <strong>Your phone is not sharing location.</strong> Either you tapped "Don\'t Allow", or Location Services is switched off.', stepsSiteBlocked(), 'Turn on location & try again');
+      } else {
+        show('bad', '🚫 <strong>Location permission was refused.</strong> This course requires it.', stepsSiteBlocked(), 'Try again');
+      }
+    } else if (e.code === 2) {
+      show('warn', '📵 <strong>Your phone\'s location seems to be switched off</strong> (or has no signal yet).', stepsLocationOff(), 'Turn on location & try again');
+    } else {
+      show('warn', '⏳ <strong>Could not get a fix in time.</strong> Move near a window or away from thick walls, then try again.', [], 'Try again');
+    }
+  }
+  function request(){
+    if (busy) return; busy = true;
+    if (!best) show('info', '📍 Getting your location… (tap <strong>Allow</strong> if your phone asks)');
+    navigator.geolocation.getCurrentPosition(use, onErr, {enableHighAccuracy: true, timeout: 20000, maximumAge: 0});
+  }
+
+  // Safari (iOS) remembers a refusal for the life of the page and will not ask again;
+  // only a fresh page load re-prompts. So on iOS, retrying after a denial = reload.
+  let denied = false;
+  function retryNow(){
+    if (isIOS && (denied || (best && best.accuracy > 1000))) { show('info', '🔄 Reloading to read your location settings again…'); location.reload(); return; }
+    request();
+  }
+  if (!navigator.geolocation){ show('bad', 'Your browser cannot provide a location. Ask the lecturer to mark you manually.'); return; }
+  if (!window.isSecureContext){ show('bad', 'Location is only available over a secure (https) connection.'); return; }
+
+  // Track the site permission state where the browser supports it (Chrome/Android, newer Safari)
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({name: 'geolocation'}).then(function(st){
+      permState = st.state;
+      st.onchange = function(){ permState = st.state; if (st.state !== 'denied' && !best) retryNow(); };
+    }).catch(function(){});
+  }
+
+  retry.addEventListener('click', retryNow);
+  // Student goes to Settings, flips the toggle, comes back → retry by itself
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && !best) setTimeout(retryNow, 400); });
+  window.addEventListener('pageshow', function(ev){ if (ev.persisted && !best) retryNow(); });
+
+  request();
+  // keep improving accuracy while the student reads the page
+  const w = navigator.geolocation.watchPosition(use, function(){}, {enableHighAccuracy: true, maximumAge: 0});
+  setTimeout(function(){ navigator.geolocation.clearWatch(w); }, 30000);
+})();
+</script>
+{% endif %}
+
+{% else %}
+<div class="card">
+  <h2>Enter attendance code</h2>
+  <p class="muted small">Scan the QR code on the projector with your phone camera, or type the 6-digit code shown beside it. The code changes every {{ ROTATE_SECONDS }} seconds.</p>
+  <form method="post">
+    <input name="code" class="code-input" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="••••••" required autofocus autocomplete="one-time-code">
+    <button class="btn primary block" style="font-size:1.05rem">Continue</button>
+  </form>
+</div>
+<p class="center"><a href="{{ url_for('student_home') }}">← Back to my courses</a></p>
+{% endif %}
+{% endblock %}

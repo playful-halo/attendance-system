@@ -1,0 +1,17 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<div class="card">
+  <h3>Campus networks</h3>
+  <p class="muted small">IP ranges (CIDR) that count as "on campus". Courses with a network rule use this list to flag or block check-ins made from mobile data or home Wi-Fi. One range per line; <code>#</code> starts a comment.</p>
+  <form method="post">
+    <textarea name="allowed_networks" rows="6" placeholder="197.210.0.0/16   # UniWiFi public range&#10;10.0.0.0/8       # internal">{{ allowed_networks }}</textarea>
+    <div class="row spread" style="margin-top:.6rem">
+      <span class="muted small">Currently recognised: <strong>{{ parsed|length }}</strong> range(s). Your IP right now: <code>{{ my_ip }}</code> — open this page from the campus Wi-Fi to see what to add.</span>
+      <button class="btn primary">Save</button>
+    </div>
+  </form>
+  <p class="help">Tip: connect to the campus Wi-Fi, open this page, and add the range containing the IP shown (e.g. <code>197.210.52.0/22</code> for 197.210.52.x–55.x). Your IT department can give you the exact ranges.</p>
+</div>
+{% endblock %}

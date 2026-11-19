@@ -1,0 +1,195 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Report{% endblock %}
+{% block content %}
+<a href="{{ url_for('course_page', course_id=course.id) }}">← {{ course.code }}</a>
+<div class="row spread">
+  <h1>{{ sess.title }} <small class="muted" style="font-weight:400">{{ course.code }}</small>
+    {% if OFFLINE_WIFI and sess.ended_at %}{% if sess.synced_at %}<span class="pill present" style="vertical-align:middle">✓ synced</span>{% else %}<span class="pill late" style="vertical-align:middle" data-pending-sync="1">pending sync (auto-syncs when online)</span>{% endif %}
+    {% elif not OFFLINE_WIFI and sess.offline_wifi %}<span class="pill wifi" style="vertical-align:middle">Wi‑Fi sync</span>{% endif %}
+  </h1>
+  <div class="row">
+    {% if not sess.ended_at %}
+      <a class="btn primary" href="{{ url_for('live_session', session_id=sess.id) }}">Back to live screen</a>
+      <form method="post" action="{{ url_for('end_session', session_id=sess.id) }}" class="inline-form"><button class="btn danger">End session</button></form>
+    {% endif %}
+    <a class="btn" href="{{ url_for('export_session', session_id=sess.id) }}">Export CSV</a>
+    <details style="display:inline-block"><summary class="btn">Rename / delete</summary>
+      <div class="card" style="position:absolute;z-index:5;margin-top:.3rem;min-width:320px">
+        <form method="post" action="{{ url_for('edit_session', session_id=sess.id) }}" class="row" style="gap:.4rem">
+          <input name="title" value="{{ sess.title }}" required style="flex:1"><button class="btn sm primary">Rename</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_session', session_id=sess.id) }}" style="margin-top:.6rem">
+          <button class="btn sm danger" onclick="return confirm('Delete this session and all its check-ins? This cannot be undone.')">Delete this session</button>
+        </form>
+      </div>
+    </details>
+  </div>
+</div>
+<div class="card stats">
+  <div><div class="stat">{{ n_present }}</div><div class="stat-label">present / late</div></div>
+  <div><div class="stat">{{ rows|length - n_present }}</div><div class="stat-label">absent</div></div>
+  <div><div class="stat">{{ rows|length }}</div><div class="stat-label">enrolled</div></div>
+  <div><div class="stat" style="color:{{ '#d97706' if n_flagged else 'inherit' }}">{{ n_flagged }}</div><div class="stat-label">flagged</div></div>
+  <div><div class="stat" style="font-size:1.1rem;margin-top:.5rem">{{ sess.started_at|dt }}</div><div class="stat-label">{{ 'ended ' + (sess.ended_at|tm) if sess.ended_at else 'still running' }}</div></div>
+</div>
+<p class="muted small">Rules for this session: {{ rules }}</p>
+{% if n_flagged %}
+<div class="flash error"><strong>{{ n_flagged }} check-in(s) flagged</strong> — see the reason next to each name (shared phone, new phone, off-campus network, or poor GPS). Verify these students in person, then clear the flag or remove the mark.</div>
+{% endif %}
+
+{% macro render_phone_group(g_item) %}
+<div class="phone-group {{ '' if g_item.any_flagged else 'cleared' }}">
+  <div class="phone-head">
+    <span class="phone-title">📱 Phone #{{ g_item.phone_num }} · {{ g_item.phone_label }}</span>
+    <span class="phone-meta">Usual owner: <strong>{{ g_item.owner_label }}</strong></span>
+  </div>
+  <div class="phone-steps">
+    {% for m in g_item.members %}
+    <div class="phone-step {{ 'proxy' if loop.index > 1 and m.flagged }}">
+      <div class="phone-step-left">
+        <span class="step-num">{{ m.step }}</span>
+        <div>
+          <div><strong>{{ m.name }}</strong> <span class="muted small">{{ m.matric }}</span></div>
+          <div class="muted small">{{ m.checked_at|tm }} · {{ m.method }} · {% if loop.index == 1 %}1st check-in{% else %}<span class="gap-tag">{{ m.gap_badge }}</span>{% endif %}</div>
+        </div>
+      </div>
+      <div class="row" style="gap:.3rem">
+        {% if m.is_owner %}<span class="owner-tag">Phone owner</span>{% endif %}
+        {% if m.flag_cleared and not m.flagged %}<span class="pill present">✓ cleared</span>{% endif %}
+        <form method="post" action="{{ url_for('manual_mark', session_id=sess.id) }}" class="inline-form">
+          <input type="hidden" name="student_id" value="{{ m.student_id }}">
+          {% if m.flagged %}<button class="btn sm" name="action" value="clear_flag">Clear flag</button>{% endif %}
+          <button class="btn sm {{ 'danger soft' if loop.index > 1 else '' }}" name="action" value="remove" onclick="return confirm('Remove attendance mark for {{ m.name }} ({{ m.matric }})?')">Remove</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="phone-foot">💡 {{ g_item.tip }}</div>
+</div>
+{% endmacro %}
+
+{% if unresolved_shared %}
+<div class="card shared-card" id="shared-phones">
+  <div class="row spread">
+    <h3 style="margin:0;color:#92400e">📱 Shared phones in this session <span class="count">({{ unresolved_shared|length }} phone{{ 's' if unresolved_shared|length != 1 else '' }})</span></h3>
+    <span class="muted small">Ordered by check-in time · removing a proxy mark automatically clears the phone owner's flag</span>
+  </div>
+  <div class="shared-grid">
+    {% for g_item in unresolved_shared %}{{ render_phone_group(g_item) }}{% endfor %}
+  </div>
+  {% if cleared_shared %}
+  <details style="margin-top:.7rem">
+    <summary class="muted small" style="cursor:pointer">{{ cleared_shared|length }} shared phone{{ 's' if cleared_shared|length != 1 else '' }} already reviewed &amp; cleared</summary>
+    <div class="shared-grid" style="margin-top:.5rem">
+      {% for g_item in cleared_shared %}{{ render_phone_group(g_item) }}{% endfor %}
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% elif cleared_shared %}
+<details class="card" style="padding:.75rem 1.1rem">
+  <summary class="small" style="cursor:pointer;font-weight:600;color:#475569">📱 {{ cleared_shared|length }} shared phone{{ 's' if cleared_shared|length != 1 else '' }} in this session (all reviewed &amp; cleared)</summary>
+  <div class="shared-grid" style="margin-top:.65rem">
+    {% for g_item in cleared_shared %}{{ render_phone_group(g_item) }}{% endfor %}
+  </div>
+</details>
+{% endif %}
+
+<div class="card" id="spot">
+  <div class="row spread">
+    <h3 style="margin:0">Spot check <span class="muted small" style="font-weight:400">— call these names out now</span></h3>
+    <form method="post" action="{{ url_for('run_spot_check', session_id=sess.id) }}" class="row" style="gap:.4rem">
+      <select name="n" style="max-width:90px">{% for n in [3,5,8,10] %}<option value="{{ n }}" {{ 'selected' if n==5 }}>{{ n }}</option>{% endfor %}</select>
+      <button class="btn primary">Run spot check</button>
+    </form>
+  </div>
+  <p class="help">
+    {% if n_suspicious %}<strong style="color:#b45309">{{ n_suspicious }} student(s) show unusual patterns</strong> in this session (see the ⚑ column below).{% else %}No unusual patterns detected in this session.{% endif %}
+    The picker takes about 60% of names from the most suspicious and the rest at random, then shuffles them — students cannot tell which is which.
+    Mark each name <em>Present</em> or <em>Absent</em>; “Absent” removes the attendance mark and is remembered for future picks.
+  </p>
+  {% if spot %}
+  <table>
+    <tr><th>#</th><th>Matric</th><th>Name</th><th>Why picked</th><th>Outcome</th></tr>
+    {% for r in spot %}
+    <tr class="{{ 'flagged' if r.outcome == 'absent' }}">
+      <td>{{ loop.revindex }}</td><td>{{ r.matric }}</td><td><strong>{{ r.name }}</strong></td>
+      <td class="small">{% if r.reasons %}<span class="pill flag">⚑ suspicious</span> <span class="muted">{{ r.reasons }}</span>{% else %}<span class="muted">random</span>{% endif %}</td>
+      <td>
+        {% if r.outcome %}
+          <span class="pill {{ 'present' if r.outcome=='present' else 'absent' }}">{{ r.outcome }}</span>
+          <span class="muted small">{{ r.decided_at|tm }}</span>
+        {% else %}
+          <form method="post" action="{{ url_for('spot_check_outcome', session_id=sess.id, spot_id=r.id) }}" class="inline-form">
+            <button class="btn sm" name="outcome" value="present">✓ Present</button>
+            <button class="btn sm danger" name="outcome" value="absent" onclick="return confirm('Mark {{ r.name }} as ABSENT? Their attendance mark for this session will be removed.')">✗ Absent</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+{% if rejections %}
+<div class="card">
+  <h3>Rejected attempts ({{ rejections|length }})</h3>
+  <p class="help">These students tried to check in but were blocked by a rule. Repeated "outside geofence" or "off-campus network" entries usually mean a forwarded link.</p>
+  <table>
+    <tr><th>Time</th><th>Matric</th><th>Name</th><th>Reason</th><th>Detail</th><th></th></tr>
+    {% for r in rejections %}
+    <tr><td>{{ r.at|tm }}</td><td>{{ r.matric }}</td><td>{{ r.name }}</td><td><span class="pill absent">{{ r.reason }}</span></td><td class="muted small">{{ r.detail or '' }}</td>
+        <td style="white-space:nowrap">{% if r.student_id in present_ids %}<span class="muted small">now present</span>{% else %}
+          <form method="post" action="{{ url_for('manual_mark', session_id=sess.id) }}" class="inline-form">
+            <input type="hidden" name="student_id" value="{{ r.student_id }}">
+            <button class="btn sm" name="action" value="mark" data-enter-action="Mark {{ r.name }} ({{ r.matric }}) present? They were rejected: {{ r.reason }}.">Mark present</button>
+          </form>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+<div class="card">
+  <h3 style="margin-bottom:.4rem">Register <span class="count">(<span id="reg-count">{{ rows|length }}</span>)</span></h3>
+  <div class="search-row">
+  <div class="search-box"><input class="search" data-filter="#register" data-count="#reg-count" placeholder="Search name or matric…" autocomplete="off"><button type="button" class="search-clear" aria-label="Clear search">&times;</button></div>
+  <div class="chips">
+    <button type="button" class="chip active" data-chip-for="#register" data-status="">All</button>
+    <button type="button" class="chip" data-chip-for="#register" data-status="shared">Shared phone</button>
+    <button type="button" class="chip" data-chip-for="#register" data-status="absent">Absent</button>
+    <button type="button" class="chip" data-chip-for="#register" data-status="present">Present</button>
+    <button type="button" class="chip" data-chip-for="#register" data-status="late">Late</button>
+    <button type="button" class="chip" data-chip-for="#register" data-status="flagged">Flagged</button>
+    <button type="button" class="chip" data-chip-for="#register" data-status="suspicious">Suspicious</button>
+    <button type="button" class="chip" data-chip-for="#register" data-status="manual">Manual</button>
+  </div>
+  <p class="search-hint">Press <kbd>/</kbd> to search. When only one student matches, <kbd>Enter</kbd> marks them present.</p>
+</div>
+  <table id="register">
+    <tr><th>Matric</th><th>Name</th><th>Status</th><th>Time</th><th>Method</th><th>Distance</th><th>⚑ Suspicion</th><th>Actions</th></tr>
+    {% for r in rows %}
+    {% set sc = suspicion.get(r.id) %}
+    <tr class="{{ 'flagged' if r.flagged }}" data-search="{{ r.matric }} {{ r.name }} {{ r.flag_reason or '' }}" data-status="{{ r.status or 'absent' }}{% if r.id in shared_ids %} shared{% endif %}{% if r.flagged %} flagged{% endif %}{% if sc and sc[0] > 0 %} suspicious{% endif %}{% if r.method == 'manual' %} manual{% endif %}">
+      <td>{{ r.matric }}</td><td>{{ r.name }}</td>
+      <td><span class="pill {{ r.status or 'absent' }}">{{ r.status or 'absent' }}</span> {% if r.flagged %}<span class="pill flag">⚠ {{ r.flag_reason or 'check' }}</span>{% endif %}</td>
+      <td>{{ r.checked_at|tm }}</td><td class="muted">{{ r.method or '' }}</td>
+      <td class="muted small">{% if r.distance_m is not none %}{{ r.distance_m|round|int }} m{% if r.accuracy_m %} (±{{ r.accuracy_m|round|int }}){% endif %}{% endif %}</td>
+      <td class="small" style="max-width:260px">{% if sc and sc[0] > 0 %}<span class="pill flag" title="{{ sc[1]|join('; ') }}">⚑ {{ sc[0] }}</span> <span class="muted">{{ sc[1]|join('; ') }}</span>{% endif %}</td>
+      <td>
+        <form method="post" action="{{ url_for('manual_mark', session_id=sess.id) }}" class="inline-form">
+          <input type="hidden" name="student_id" value="{{ r.id }}">
+          {% if r.status %}
+            {% if r.flagged %}<button class="btn sm" name="action" value="clear_flag">Clear flag</button>{% endif %}
+            <button class="btn sm" name="action" value="remove" onclick="return confirm('Remove this mark?')">Remove</button>
+          {% else %}
+            <button class="btn sm" name="action" value="mark" data-enter-action="Mark {{ r.name }} ({{ r.matric }}) present?">Mark present</button>
+          {% endif %}
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="no-match">No student matches that search.</div>
+</div>
+{% endblock %}

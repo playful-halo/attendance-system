@@ -1,0 +1,95 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<div class="card">
+  <h3>Create user</h3>
+  <form method="post" class="row" autocomplete="off">
+    <input name="matric" placeholder="Staff / matric no." required autocapitalize="characters" autocorrect="off" spellcheck="false" style="max-width:180px">
+    <input name="name" placeholder="Full name" required autocomplete="off" style="max-width:240px">
+    <input name="password" placeholder="Password (min 6)" required minlength="6" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" style="max-width:160px">
+    <select name="role" style="max-width:140px"><option value="lecturer">Lecturer</option><option value="student">Student</option><option value="admin">Admin</option></select>
+    <button class="btn primary">Create</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-bottom:.4rem">Users <span class="count">(<span id="usr-count">{{ users|length }}</span>)</span></h3>
+  <p class="help"><strong>Reset</strong> sets a temporary password (= their ID). <strong>Deactivate</strong> blocks login but keeps every record — use this for real people who have left.
+  <strong>Delete</strong> removes the account <em>and all its check-ins</em> permanently — use this for test accounts only. Lecturers who still own courses cannot be deleted: transfer or delete their courses first.</p>
+  <div class="search-row">
+  <div class="search-box"><input class="search" data-filter="#users" data-count="#usr-count" placeholder="Search name, ID or matric…" autocomplete="off"><button type="button" class="search-clear" aria-label="Clear search">&times;</button></div>
+  <div class="chips">
+    <button type="button" class="chip active" data-chip-for="#users" data-status="">All</button>
+    <button type="button" class="chip" data-chip-for="#users" data-status="student">Students</button>
+    <button type="button" class="chip" data-chip-for="#users" data-status="lecturer">Lecturers</button>
+    <button type="button" class="chip" data-chip-for="#users" data-status="admin">Admins</button>
+    <button type="button" class="chip" data-chip-for="#users" data-status="temporary">Temporary password</button>
+    <button type="button" class="chip" data-chip-for="#users" data-status="nocheckins">Never checked in</button>
+    <button type="button" class="chip" data-chip-for="#users" data-status="inactive">Deactivated</button>
+  </div>
+</div>
+
+  <form method="post" action="{{ url_for('admin_users_bulk') }}" id="bulk-form">
+  <div id="bulk-bar" class="row" style="align-items:center;gap:.5rem;margin:.2rem 0 .6rem;display:none">
+    <span class="muted small"><strong id="sel-count">0</strong> selected</span>
+    <button class="btn sm" name="action" value="deactivate" data-confirm="Deactivate the selected accounts? They will not be able to log in; their records are kept.">Deactivate</button>
+    <button class="btn sm" name="action" value="reactivate">Reactivate</button>
+    <button class="btn sm danger" name="action" value="delete" data-confirm="PERMANENTLY delete the selected accounts and all their check-ins? This cannot be undone.">Delete permanently</button>
+    <button type="button" class="btn sm" id="sel-none">Clear selection</button>
+  </div>
+  </form>
+  <table id="users">
+    <tr><th style="width:1.6rem"><input type="checkbox" id="sel-all" title="Select all visible"></th><th>ID</th><th>Name</th><th>Role</th><th>Created</th><th>Records</th><th>Status</th><th>Actions</th></tr>
+  {% for u in users %}
+  {% set is_me = (u.id == user.id) %}
+  {% set last_admin = (u.role == 'admin' and u.active and n_admins <= 1) %}
+  <tr id="u{{ u.id }}" data-search="{{ u.matric }} {{ u.name }}" data-status="{{ u.role }}{% if u.must_change_pw %} temporary{% endif %}{% if not u.active %} inactive{% endif %}{% if u.role == 'student' and u.n_checkins == 0 %} nocheckins{% endif %}"{% if not u.active %} style="opacity:.6"{% endif %}>
+    <td>{% if not is_me and not last_admin %}<input type="checkbox" class="sel" name="ids" value="{{ u.id }}" form="bulk-form">{% endif %}</td>
+    <td>{{ u.matric }}</td><td>{{ u.name }}{% if is_me %} <span class="muted small">(you)</span>{% endif %}</td><td>{{ u.role }}</td>
+    <td class="muted" style="white-space:nowrap">{{ u.created_at[:10] }}</td>
+    <td class="muted small">{% if u.role == 'student' %}{{ u.n_enrol }} course{{ '' if u.n_enrol == 1 else 's' }} · {{ u.n_checkins }} check-in{{ '' if u.n_checkins == 1 else 's' }}{% else %}{{ u.n_courses }} course{{ '' if u.n_courses == 1 else 's' }} owned{% endif %}</td>
+    <td>{% if not u.active %}<span class="pill absent">deactivated</span>{% elif u.must_change_pw %}<span class="pill late">temporary pw</span>{% else %}<span class="pill present">active</span>{% endif %}</td>
+    <td style="white-space:nowrap">
+      {% if not is_me %}
+      <form method="post" action="{{ url_for('admin_reset_password', user_id=u.id) }}" class="inline-form"><button class="btn sm" onclick="return confirm('Reset password for {{ u.name }}?')">Reset</button></form>
+      {% if u.active %}
+        {% if not last_admin %}<form method="post" action="{{ url_for('admin_user_action', user_id=u.id, action='deactivate') }}" class="inline-form"><button class="btn sm" onclick="return confirm('Deactivate {{ u.name }}? They will not be able to log in; all records are kept.')">Deactivate</button></form>{% endif %}
+      {% else %}
+        <form method="post" action="{{ url_for('admin_user_action', user_id=u.id, action='reactivate') }}" class="inline-form"><button class="btn sm">Reactivate</button></form>
+      {% endif %}
+      {% if last_admin %}<span class="muted small" title="Create another admin first">last admin</span>
+      {% elif u.n_courses %}<button class="btn sm" disabled title="Transfer or delete this lecturer's {{ u.n_courses }} course(s) first">Delete</button>
+      {% else %}<form method="post" action="{{ url_for('admin_user_action', user_id=u.id, action='delete') }}" class="inline-form"><button class="btn sm danger soft" onclick="return confirm('PERMANENTLY delete {{ u.name }} ({{ u.matric }})?\n\nThis removes {{ u.n_enrol }} enrolment(s) and {{ u.n_checkins }} check-in(s) from the registers. This cannot be undone.')">Delete</button></form>{% endif %}
+      {% endif %}
+    </td></tr>{% endfor %}
+  </table>
+  <div class="no-match">No user matches that search.</div>
+</div>
+
+<div class="card">
+  <h3>Account changes</h3>
+  {% if events %}
+  <table><tr><th>When</th><th>By</th><th>Action</th><th>Account</th><th>Detail</th></tr>
+  {% for ev in events %}<tr><td class="muted small" style="white-space:nowrap">{{ ev.at|dt }}</td><td>{{ ev.by_name }}</td>
+    <td>{% if ev.action == 'delete' %}<span class="pill absent">deleted</span>{% elif ev.action == 'deactivate' %}<span class="pill late">deactivated</span>{% elif ev.action == 'offline_sync' %}<span class="pill wifi">offline sync</span>{% else %}<span class="pill present">{{ ev.action }}d</span>{% endif %}</td>
+    <td>{{ ev.target }}</td><td class="muted small">{{ ev.detail or '' }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">No accounts have been deactivated or deleted yet.</p>{% endif %}
+</div>
+
+<script>
+(function(){
+  var all=document.getElementById('sel-all'), bar=document.getElementById('bulk-bar'), cnt=document.getElementById('sel-count');
+  var boxes=function(){return Array.prototype.slice.call(document.querySelectorAll('#users input.sel'));};
+  var visible=function(){return boxes().filter(function(b){return b.closest('tr').style.display!=='none';});};
+  function refresh(){var n=boxes().filter(function(b){return b.checked;}).length;cnt.textContent=n;bar.style.display=n?'flex':'none';}
+  document.getElementById('users').addEventListener('change',function(e){if(e.target.classList.contains('sel'))refresh();});
+  all.addEventListener('change',function(){visible().forEach(function(b){b.checked=all.checked;});refresh();});
+  document.getElementById('sel-none').addEventListener('click',function(){boxes().forEach(function(b){b.checked=false;});all.checked=false;refresh();});
+  document.getElementById('bulk-form').addEventListener('submit',function(e){
+    var btn=e.submitter; if(btn&&btn.dataset.confirm&&!confirm(cnt.textContent+' account(s): '+btn.dataset.confirm)){e.preventDefault();}
+  });
+})();
+</script>
+{% endblock %}

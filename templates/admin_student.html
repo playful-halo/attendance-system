@@ -1,0 +1,51 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}{{ stu.name }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('admin_students') }}">← Students</a>
+<div class="row spread" style="align-items:flex-end;margin-top:.4rem">
+  <div>
+    <h1 style="margin-bottom:.1rem">{{ stu.name }}</h1>
+    <div class="muted">Matric <code>{{ stu.matric }}</code>
+      {% if not stu.active %} · <span class="pill absent">deactivated</span>{% elif stu.must_change_pw %} · <span class="pill late">still on temporary password</span>{% endif %}</div>
+  </div>
+  <div class="row" style="gap:.5rem">
+    <form method="post" action="{{ url_for('admin_reset_password', user_id=stu.id) }}" onsubmit="return confirm('Reset {{ stu.name }}\'s password to their matric number?')" style="margin:0"><button class="btn sm">Reset password</button></form>
+    <a class="btn sm" href="{{ url_for('admin_users') }}#u{{ stu.id }}">Account settings</a>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-bottom:.4rem">Courses ({{ courses|length }})</h3>
+  {% if courses %}
+  <table>
+    <tr><th>Course</th><th>Lecturer</th><th>Attended</th><th>Rate</th><th>Flags</th><th>Spot-check absences</th><th></th></tr>
+    {% for c in courses %}
+    {% set pct = (100 * c.attended / c.n_ended)|round|int if c.n_ended else none %}
+    <tr style="{{ 'opacity:.6' if c.archived }}">
+      <td><strong>{{ c.code }}</strong> <span class="muted">{{ c.title }}</span>{% if c.archived %} <span class="pill">archived</span>{% endif %}</td>
+      <td class="muted">{{ c.lecturer }}</td>
+      <td>{{ c.attended }} / {{ c.n_ended }}</td>
+      <td>{% if pct is none %}<span class="muted">—</span>{% else %}<span class="pill {{ 'present' if pct >= 75 else ('late' if pct >= 50 else 'absent') }}">{{ pct }}%</span>{% endif %}</td>
+      <td>{% if c.flagged %}<span class="pill flag">{{ c.flagged }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
+      <td>{% if c.spot_absent %}<span class="pill absent">{{ c.spot_absent }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
+      <td><a class="btn sm" href="{{ url_for('course_page', course_id=c.id) }}">Course</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="help">Rate = sessions attended ÷ ended sessions in that course. 75 % is the usual exam-eligibility line.</p>
+  {% else %}<p class="muted">Not enrolled in any course.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-bottom:.4rem">Recent check-ins</h3>
+  {% if recent %}
+  <table>
+    <tr><th>When</th><th>Course</th><th>Session</th><th>Status</th></tr>
+    {% for k in recent %}
+    <tr><td class="muted small" style="white-space:nowrap">{{ k.checked_at|dt }}</td><td><strong>{{ k.code }}</strong></td><td>{{ k.title }}</td>
+        <td><span class="pill {{ k.status }}">{{ k.status }}</span>{% if k.flagged %} <span class="pill flag" title="{{ k.flag_reason }}">⚠ {{ k.flag_reason }}</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No check-ins yet.</p>{% endif %}
+</div>
+{% endblock %}

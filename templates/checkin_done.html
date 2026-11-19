@@ -1,0 +1,51 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Marked{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+{% set serious = flags | rejectattr('reason', 'equalto', 'low GPS accuracy') | list %}
+<div class="card center">
+  {% if serious %}
+  <div class="big-check">⚠️</div>
+  <h2>You're marked <span class="pill {{ status }}" style="font-size:1rem">{{ status }}</span> — but flagged</h2>
+  {% else %}
+  <div class="big-check">{{ '✅' if status == 'present' else '🕒' }}</div>
+  <h2>You're marked <span class="pill {{ status }}" style="font-size:1rem">{{ status }}</span></h2>
+  {% endif %}
+  <div class="muted">{{ course.code }} · {{ sess.title }}</div>
+  <div class="muted small" style="margin-top:.4rem">{{ user.name }} · {{ user.matric }}</div>
+
+  {% if serious %}
+  <div class="flash" style="margin:1rem 0 0;border-color:#fcd34d;background:#fffbeb;color:#78350f;text-align:left">
+    <p style="margin:0 0 .5rem"><strong>Why this check-in was flagged for lecturer review:</strong></p>
+    <ul style="margin:0 0 .6rem;padding-left:1.2rem;line-height:1.5">
+    {% for f in serious %}
+      {% if f.reason == 'outside geofence' %}
+      <li>Your phone reported a position about <strong>{{ distance|round|int }} m from the hall</strong> (allowed {{ radius }} m).</li>
+      {% elif f.reason == 'imprecise location' %}
+      <li>Your phone only shared a <strong>rough position</strong>, too vague to place you in the hall.</li>
+      {% elif f.reason == 'off-campus network' %}
+      <li>You are <strong>not on the campus Wi‑Fi</strong> — your check-in came from a mobile-data or outside network.</li>
+      {% elif f.reason == 'shared device' %}
+      <li><strong>This phone was already used by another student</strong> to check in to this session. Both check-ins are flagged.</li>
+      {% elif f.reason == 'previous shared device' %}
+      <li><strong>This phone was used by another student</strong> in an earlier lecture of this course.</li>
+      {% elif f.reason == 'new device' %}
+      <li>You signed in from a <strong>different phone</strong> than the one you used in earlier lectures of this course.</li>
+      {% else %}
+      <li>{{ f.text }}</li>
+      {% endif %}
+    {% endfor %}
+    </ul>
+    <p style="margin:0 0 .5rem">Your attendance <strong>is recorded</strong>, and the lecturer will see this flag.
+       <strong>Stay in the hall — flagged students are the first to be called in a spot check.</strong></p>
+    {% if serious | selectattr('reason', 'in', ['outside geofence', 'imprecise location']) | list %}
+    <p class="small" style="margin:0">If you are in the hall, this is usually the phone: turn on <strong>Precise Location</strong> and Wi‑Fi scanning, or sit nearer a window next time.</p>
+    {% endif %}
+  </div>
+  {% elif flags %}
+  <p class="help" style="margin-top:.8rem">Note: your phone's location accuracy was poor ({{ flags[0].text }}). You were inside the hall's radius, so this is fine — but a clearer signal next time avoids any doubt.</p>
+  {% endif %}
+
+  <a class="btn block" href="{{ url_for('student_home') }}" style="margin-top:1rem">Done</a>
+</div>
+{% endblock %}

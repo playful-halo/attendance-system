@@ -1,0 +1,22 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Not available for this account{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0">This page isn't available for your account</h2>
+  {% if user %}
+  <p>You're signed in as <strong>{{ user.name }}</strong> ({{ role }}), but this page needs <strong>{{ needed }}</strong>{% if other_owner %} — or, if you are a lecturer, this course belongs to another lecturer{% endif %}.</p>
+  {% if role in ('lecturer','admin') and path.startswith('/checkin') %}
+  <p class="help">Tip: to test check-in, use a <em>student</em> login on the phone (e.g. one of your test student accounts). Lecturers can't check themselves in — otherwise the record would be meaningless.</p>
+  {% elif role == 'student' %}
+  <p class="help">Students can't open lecturer pages such as the live screen or reports. If you're a lecturer, log out and sign in with your staff ID.</p>
+  {% endif %}
+  <div class="row" style="margin-top:1rem">
+    <a class="btn primary" href="{{ url_for('logout') }}">Log out and switch account</a>
+    <a class="btn" href="{{ url_for('index') }}">Go to my home page</a>
+  </div>
+  {% else %}
+  <p>Please <a href="{{ url_for('login', next=path) }}">log in</a> to continue.</p>
+  {% endif %}
+</div>
+{% endblock %}

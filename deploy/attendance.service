@@ -1,0 +1,16 @@
+# systemd unit for a Linux VPS:  sudo cp deploy/attendance.service /etc/systemd/system/
+[Unit]
+Description=CS Department Attendance System
+After=network.target
+
+[Service]
+User=attendance
+WorkingDirectory=/opt/attendance
+Environment=SECRET_KEY=CHANGE_ME_TO_A_LONG_RANDOM_STRING
+Environment=PUBLIC_BASE_URL=https://attendance.example.edu.ng
+Environment=ATTENDANCE_DB=/opt/attendance/data/attendance.db
+ExecStart=/opt/attendance/venv/bin/gunicorn -w 2 -b 127.0.0.1:8000 wsgi:application
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

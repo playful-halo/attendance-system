@@ -1,0 +1,178 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Attendance{% endblock %} · {{ APP_NAME }}</title>
+<meta name="author" content="{{ APP_AUTHOR }}">
+<meta name="copyright" content="{{ COPYRIGHT }}">
+<meta name="generator" content="{{ APP_NAME }} v{{ APP_VERSION }}">
+<!-- {{ APP_NAME }} v{{ APP_VERSION }} - {{ COPYRIGHT }} -->
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='app_icon.png') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=STATIC_VERSION) }}">
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+{% block nav %}
+<nav class="nav">
+  <a class="brand" href="{{ url_for('index') }}">
+    <span class="logo">CS</span> {{ APP_NAME }}{% if OFFLINE_WIFI %} <span class="pill wifi">Offline Wi‑Fi</span>{% endif %}
+  </a>
+  <div class="nav-right">
+    {% if user %}
+      <span class="who">{{ user.name }} <small>· {{ user.role }}</small></span>
+      {% if user.role == 'admin' %}<a href="{{ url_for('admin_home') }}">Overview</a><a href="{{ url_for('lecturer_home') }}">Courses</a><a href="{{ url_for('admin_students') }}">Students</a><a href="{{ url_for('admin_users') }}">Users</a><a href="{{ url_for('admin_settings') }}">Settings</a>{% endif %}
+      <a href="{{ url_for('change_password') }}">Password</a>
+      <a href="{{ url_for('logout') }}">Log out</a>
+    {% endif %}
+  </div>
+</nav>
+{% endblock %}
+<main class="{% block mainclass %}container{% endblock %}">
+  {% with msgs = get_flashed_messages(with_categories=true) + url_flashes %}
+    {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+{% block footer %}<footer class="site-foot">{{ APP_NAME }} v{{ APP_VERSION }} · {{ COPYRIGHT }}</footer>{% endblock %}
+<script>
+// Persist origin device_id in localStorage so cleared browser cookies don't break device tracking.
+(function(){
+  var curDev = "{{ CURRENT_DEVICE_ID or '' }}";
+  window._attOrigDev = "";
+  try {
+    var saved = localStorage.getItem('cs_att_dev');
+    if (saved && /^[0-9a-f]{32}$/.test(saved)) {
+      window._attOrigDev = saved;
+    } else if (curDev && /^[0-9a-f]{32}$/.test(curDev)) {
+      localStorage.setItem('cs_att_dev', curDev);
+      window._attOrigDev = curDev;
+    }
+  } catch(e) {}
+})();
+// Show/hide password: every password box gets an eye button (hold-free toggle, works on phones).
+(function(){
+  document.querySelectorAll('input[type="password"]').forEach(function(inp){
+    var wrap=document.createElement('div'); wrap.className='pw-wrap';
+    inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp);
+    var b=document.createElement('button'); b.type='button'; b.className='pw-eye'; b.setAttribute('aria-label','Show password'); b.title='Show password';
+    b.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+    var off='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    var on=b.innerHTML;
+    b.addEventListener('click', function(){
+      var show = inp.type==='password'; inp.type = show?'text':'password';
+      b.innerHTML = show?off:on; var lbl = show?'Hide password':'Show password'; b.title = lbl; b.setAttribute('aria-label', lbl);
+      inp.focus({preventScroll:true});
+    });
+    wrap.appendChild(b);
+  });
+})();
+// Instant search: <input data-filter="#tableId" data-count="#counterId"> filters table rows - or, for a non-table
+// container (e.g. the student's course grid), its [data-search] children.
+// Optional status chips: <button data-chip-for="#tableId" data-status="absent">; rows carry data-status="present flagged".
+// Enter with exactly one visible row triggers that row's [data-enter-action] button (e.g. "Mark present").
+(function(){
+  document.querySelectorAll('input[data-filter]').forEach(function(inp){
+    var table=document.querySelector(inp.dataset.filter); if(!table) return;
+    var rows=table.tagName==='TABLE'
+      ? Array.prototype.slice.call(table.querySelectorAll('tr')).filter(function(r){return r.querySelector('td');})
+      : Array.prototype.slice.call(table.querySelectorAll('[data-search]'));   // e.g. a grid of cards
+    var count=inp.dataset.count?document.querySelector(inp.dataset.count):null;
+    var chips=Array.prototype.slice.call(document.querySelectorAll('[data-chip-for="'+inp.dataset.filter+'"]'));
+    var empty=table.parentNode.querySelector('.no-match'); var status='';
+    function apply(){
+      var q=inp.value.trim().toLowerCase().split(/\s+/).filter(Boolean), n=0;
+      rows.forEach(function(r){
+        var text=(r.dataset.search||r.textContent).toLowerCase();
+        var okQ=q.every(function(w){return text.indexOf(w)>-1;});
+        var okS=!status||(' '+(r.dataset.status||'')+' ').indexOf(' '+status+' ')>-1;
+        var show=okQ&&okS; r.style.display=show?'':'none'; if(show)n++;
+      });
+      if(count) count.textContent=(n===rows.length)?rows.length:(n+' of '+rows.length);
+      if(empty) empty.style.display=(n===0&&rows.length)?'block':'none';
+    }
+    var box=inp.closest('.search-box'), clr=box?box.querySelector('.search-clear'):null;
+    function sync(){ if(box) box.classList.toggle('has-text',!!inp.value); }
+    if(clr) clr.addEventListener('click',function(){inp.value='';apply();sync();inp.focus();});
+    inp.addEventListener('input',function(){apply();sync();});
+    chips.forEach(function(c){c.addEventListener('click',function(){status=c.dataset.status||'';chips.forEach(function(x){x.classList.toggle('active',x===c);});apply();inp.focus();});});
+    inp.addEventListener('keydown',function(e){
+      if(e.key==='Escape'){inp.value='';apply();sync();return;}
+      if(e.key!=='Enter') return; e.preventDefault();
+      var vis=rows.filter(function(r){return r.style.display!=='none';});
+      var btn=vis.length===1?vis[0].querySelector('[data-enter-action]'):null;
+      if(btn&&confirm(btn.dataset.enterAction)) btn.click();
+    });
+    apply();
+  });
+  // "/" focuses the first search box on the page
+  function _syncFsUi(on){
+    var pill=document.getElementById('desktop-exit-fs');
+    var b=document.getElementById('fs-btn');
+    if(b) b.textContent=on?'Exit full screen (Esc)':'Full screen';
+    if(on && !b){
+      if(!pill){
+        pill=document.createElement('button');
+        pill.id='desktop-exit-fs';
+        pill.type='button';
+        pill.textContent='\u2715 Exit full screen (Esc)';
+        pill.style.cssText='position:fixed;top:12px;right:14px;z-index:9999;background:rgba(15,23,42,.86);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:.4rem .85rem;font-size:.84rem;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.25)';
+        pill.onclick=function(){if(window._exitAppFs)window._exitAppFs();};
+        document.body.appendChild(pill);
+      }
+      pill.style.display='block';
+    }else if(pill){
+      pill.style.display='none';
+    }
+  }
+  window._toggleAppFs=function(){
+    if(window.pywebview&&window.pywebview.api){
+      window.pywebview.api.toggle_fullscreen().then(_syncFsUi);
+    }else if(document.fullscreenElement){
+      document.exitFullscreen(); _syncFsUi(false);
+    }else{
+      document.documentElement.requestFullscreen(); _syncFsUi(true);
+    }
+  };
+  window._exitAppFs=function(){
+    if(window.pywebview&&window.pywebview.api){
+      window.pywebview.api.exit_fullscreen().then(function(){_syncFsUi(false);});
+    }else if(document.fullscreenElement){
+      document.exitFullscreen(); _syncFsUi(false);
+    }
+  };
+  document.addEventListener('fullscreenchange',function(){_syncFsUi(!!document.fullscreenElement);});
+  window.addEventListener('pywebviewready',function(){
+    if(!window.pywebview||!window.pywebview.api) return;
+    if(!/\/live\/?$/.test(location.pathname)){
+      window.pywebview.api.exit_fullscreen().then(function(){_syncFsUi(false);});
+    }else{
+      window.pywebview.api.is_fullscreen().then(_syncFsUi);
+    }
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='F11'&&window.pywebview&&window.pywebview.api){e.preventDefault();window._toggleAppFs();return;}
+    if(e.key==='Escape'&&window.pywebview&&window.pywebview.api){window._exitAppFs();}
+    if(e.key==='/'&&!/input|textarea|select/i.test(document.activeElement.tagName)){var s=document.querySelector('input[data-filter]');if(s){e.preventDefault();s.focus();}}
+  });
+  {% if OFFLINE_WIFI and user and user.role in ('lecturer', 'admin') %}
+  (function(){
+    var el=document.querySelector('[data-pending-sync]');
+    if(!el) return;
+    var initPending=null;
+    var poll=setInterval(function(){
+      fetch("{{ url_for('api_sync_status') }}",{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(d){
+        if(!d||!d.ok) return;
+        if(initPending===null){initPending=Math.max(1,d.pending||1);}
+        if(d.pending<initPending&&!/input|textarea|select/i.test((document.activeElement||{}).tagName||'')){
+          clearInterval(poll); location.reload();
+        }
+      }).catch(function(){});
+    },3500);
+  })();
+  {% endif %}
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

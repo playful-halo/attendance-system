@@ -1,0 +1,83 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Set hall location{% endblock %}
+{% block nav %}{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+<div class="card center">
+  {% if error %}
+    <div class="big-check">⚠️</div><h2>Link not valid</h2><p class="muted">{{ error }}</p>
+  {% elif done %}
+    <div class="big-check">✅</div>
+    <h2>Location saved</h2>
+    <p class="muted">{{ course.code }} — hall position set from this phone (accurate to about {{ acc|round|int }} m). Allowed radius: <strong>{{ course.geo_radius_m }} m</strong>.<br>Back on the laptop the coordinates are filled in — click <strong>Save rules</strong> to keep the radius.</p>
+    <div id="test" class="flash" style="margin:1rem 0 0;border-color:#bfdbfe;background:#eff6ff;color:#1e3a8a;text-align:left">
+      <strong>Live test</strong> — walk to the back of the hall and watch this:<br><span id="test-msg">📍 measuring…</span>
+    </div>
+    <p class="help">A student at this spot passes if <em>distance − their GPS error (max {{ allow_student }} m) − this point's error (max {{ allow_ref }} m)</em> is within the radius. If the back rows FAIL, widen the radius on the laptop.</p>
+    <script>
+    (function(){
+      const HL={{ course.geo_lat }}, HG={{ course.geo_lng }}, R={{ course.geo_radius_m }}, REF=Math.min({{ acc }}, {{ allow_ref }}), AS={{ allow_student }};
+      const m=document.getElementById('test-msg'), box=document.getElementById('test');
+      function hav(a,b,c,d){const r=6371000,p1=a*Math.PI/180,p2=c*Math.PI/180,dp=(c-a)*Math.PI/180,dl=(d-b)*Math.PI/180;const x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*r*Math.asin(Math.sqrt(x));}
+      if(!navigator.geolocation){m.textContent='No location available on this phone.';return;}
+      navigator.geolocation.watchPosition(function(p){
+        const d=hav(p.coords.latitude,p.coords.longitude,HL,HG), acc=p.coords.accuracy, eff=Math.max(0,d-Math.min(acc,AS)-REF), ok=eff<=R;
+        m.innerHTML='You are about <strong>'+Math.round(d)+' m</strong> from the saved point (±'+Math.round(acc)+' m) → <strong>'+(ok?'PASS':'FAIL')+'</strong> with a '+R+' m radius.';
+        box.style.background=ok?'#f0fdf4':'#fef2f2'; box.style.borderColor=ok?'#bbf7d0':'#fecaca'; box.style.color=ok?'#166534':'#991b1b';
+      }, function(){ m.textContent='Could not read location.'; }, {enableHighAccuracy:true, maximumAge:0});
+    })();
+    </script>
+  {% else %}
+    <div class="muted small">Set the lecture hall location for</div>
+    <h2 style="margin:.3rem 0">{{ course.code }}</h2>
+    <div class="muted">{{ course.title }}</div>
+    <div id="box" class="flash" style="margin:1rem 0 0;border-color:#bfdbfe;background:#eff6ff;color:#1e3a8a;text-align:left">
+      <span id="msg">📍 Getting a precise fix… stand inside the hall, near a window if possible.</span>
+    </div>
+    <form method="post">
+      <input type="hidden" name="lat" id="lat"><input type="hidden" name="lng" id="lng"><input type="hidden" name="acc" id="acc">
+      <button class="btn primary block" id="btn" disabled style="font-size:1.05rem;padding:.9rem">Use this location</button>
+    </form>
+    <p class="help">Tip: turn on "precise location" for your browser in the phone settings. Accuracy under 30 m is ideal.</p>
+  {% endif %}
+</div>
+{% if not error and not done %}
+<script>
+(function(){
+  const msg=document.getElementById('msg'), box=document.getElementById('box'), btn=document.getElementById('btn');
+  let best=null;
+  function fail(t){ msg.textContent=t; box.style.background='#fef2f2'; box.style.borderColor='#fecaca'; box.style.color='#991b1b'; }
+  if(!navigator.geolocation){ fail('This browser cannot provide a location.'); return; }
+  function use(p){
+    const c=p.coords;
+    // Newest reasonable fix wins (a confident but wrong first Wi-Fi fix must not stick as the hall point).
+    if(!best||c.accuracy<=100||c.accuracy<best.accuracy) best=c;
+    document.getElementById('lat').value=best.latitude; document.getElementById('lng').value=best.longitude; document.getElementById('acc').value=Math.round(best.accuracy);
+    const good = best.accuracy<=50, usable = best.accuracy<=150;
+    msg.textContent='📍 Position found — accurate to about '+Math.round(best.accuracy)+' m'+(good?'. Good enough, tap the button.':(usable?'. Usable, but wait a few seconds for a better fix if you can.':'. Too rough to use — turn on precise location / move near a window.'));
+    box.style.background=good?'#f0fdf4':(usable?'#fffbeb':'#fef2f2'); box.style.borderColor=good?'#bbf7d0':(usable?'#fde68a':'#fecaca'); box.style.color=good?'#166534':(usable?'#92400e':'#991b1b');
+    btn.disabled=!usable; busy=false; const r=document.getElementById('retry'); if(r) r.style.display='none';
+  }
+  const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+  let retry=document.getElementById('retry');
+  if(!retry){ retry=document.createElement('button'); retry.type='button'; retry.id='retry'; retry.className='btn primary'; retry.style.cssText='display:none;margin-top:.7rem;width:100%'; box.appendChild(retry); }
+  let busy=false;
+  function err(e){
+    busy=false; if(best) return;
+    let t;
+    if(e.code===1) t = '🚫 Location is blocked or switched off. ' + (isIOS
+        ? 'Tap AA in the address bar → Website Settings → Location → Allow, and check Settings → Privacy & Security → Location Services is on.'
+        : 'Tap the 🔒/⚙ icon by the address bar → Permissions → Location → Allow, and make sure the phone\'s Location tile is on.');
+    else if(e.code===2) t = '📵 Your phone\'s location seems to be off. Swipe down and turn on Location, then try again.';
+    else t = '⏳ Could not get a fix in time. Move near a window and try again.';
+    fail(t); retry.textContent='Turn on location & try again'; retry.style.display='block';
+  }
+  function request(){ if(busy) return; busy=true; navigator.geolocation.getCurrentPosition(use, err, {enableHighAccuracy:true, timeout:25000, maximumAge:0}); }
+  retry.addEventListener('click', request);
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible' && !best) setTimeout(request,400); });
+  request();
+  navigator.geolocation.watchPosition(use, function(){}, {enableHighAccuracy:true, maximumAge:0});
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,70 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}{{ lec.name }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('admin_home') }}">← Overview</a>
+<div class="row spread" style="align-items:flex-end;margin-top:.4rem">
+  <div>
+    <h1 style="margin-bottom:.1rem">{{ lec.name }}</h1>
+    <div class="muted">Staff ID <code>{{ lec.matric }}</code>
+      {% if not lec.active %} · <span class="pill absent">deactivated</span>{% elif lec.must_change_pw %} · <span class="pill late">still on temporary password</span>{% endif %}</div>
+  </div>
+  <div class="row" style="gap:.5rem">
+    <form method="post" action="{{ url_for('admin_reset_password', user_id=lec.id) }}" onsubmit="return confirm('Reset {{ lec.name }}\'s password to their staff ID? They must change it at next login.')" style="margin:0"><button class="btn sm">Reset password</button></form>
+    <a class="btn sm" href="{{ url_for('admin_users') }}#u{{ lec.id }}">Account settings</a>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-bottom:.4rem">Courses ({{ courses|length }})</h3>
+  {% if courses %}
+  <table>
+    <tr><th>Course</th><th>Students</th><th>Sessions</th><th>Avg attendance</th><th>Flags</th><th>Last session</th><th></th></tr>
+    {% for c in courses %}
+    <tr style="{{ 'opacity:.6' if c.archived }}">
+      <td><a href="{{ url_for('course_page', course_id=c.id) }}"><strong>{{ c.code }}</strong></a> <span class="muted">{{ c.title }}</span>
+          {% if c.live_session %} <span class="pill onair">Live</span>{% endif %}{% if c.archived %} <span class="pill">archived</span>{% endif %}</td>
+      <td>{{ c.n_students }}</td>
+      <td>{{ c.n_ended }}{% if c.n_sessions != c.n_ended %} <span class="muted small">(+{{ c.n_sessions - c.n_ended }} running)</span>{% endif %}</td>
+      <td>{% if c.pct is none %}<span class="muted">—</span>{% else %}
+          <span class="pill {{ 'present' if c.pct >= 75 else ('late' if c.pct >= 50 else 'absent') }}">{{ c.pct }}%</span>{% endif %}</td>
+      <td>{% if c.n_flagged %}<span class="pill flag">{{ c.n_flagged }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
+      <td class="muted small">{{ c.last_session|dt if c.last_session else '—' }}</td>
+      <td style="white-space:nowrap">
+        {% if c.live_session %}<a class="btn sm primary" href="{{ url_for('live_session', session_id=c.live_session) }}">Live screen</a>{% endif %}
+        <a class="btn sm" href="{{ url_for('course_page', course_id=c.id) }}">Manage</a>
+        <a class="btn sm" href="{{ url_for('export_course', course_id=c.id) }}">CSV</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="help">Avg attendance = check-ins ÷ (ended sessions × enrolled students). Green ≥ 75 %, amber ≥ 50 %, red below.</p>
+  {% else %}<p class="muted">No courses yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3>Create a course for {{ lec.name }}</h3>
+  <form method="post" action="{{ url_for('new_course') }}" class="row">
+    <input type="hidden" name="lecturer_id" value="{{ lec.id }}">
+    <input name="code" placeholder="Course code (CSC301)" required style="max-width:200px">
+    <input name="title" placeholder="Title" required style="max-width:320px">
+    <input name="join_code" placeholder="Join code (optional)" style="max-width:200px">
+    <button class="btn primary" {% if not lec.active %}disabled title="Account is deactivated"{% endif %}>Create</button>
+  </form>
+  <p class="help">The course will belong to {{ lec.name }}; they manage it from their own login. You keep full access as admin.</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-bottom:.4rem">Recent sessions</h3>
+  {% if recent %}
+  <table>
+    <tr><th>When</th><th>Course</th><th>Session</th><th>Present</th><th>Status</th><th></th></tr>
+    {% for s in recent %}
+    <tr><td class="muted small" style="white-space:nowrap">{{ s.started_at|dt }}</td><td><strong>{{ s.code }}</strong></td><td>{{ s.title }}{% if s.offline_wifi %} <span class="pill wifi">Wi‑Fi sync</span>{% endif %}</td>
+        <td>{{ s.n_present }} / {{ s.n_students }}</td>
+        <td>{% if s.ended_at %}<span class="muted small">ended {{ ((s.ended_at - s.started_at)//60)|int }} min</span>{% else %}<span class="pill onair">Live</span>{% endif %}</td>
+        <td><a class="btn sm" href="{{ url_for('session_report', session_id=s.id) }}">Register</a></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No sessions yet.</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,63 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Department overview{% endblock %}
+{% block content %}
+<h1>Department overview</h1>
+
+<div class="card">
+  <div class="stats" style="display:flex;flex-wrap:wrap;gap:2rem 3rem">
+    <div><div class="stat">{{ totals.lecturers }}</div><div class="muted small">lecturers</div></div>
+    <div><div class="stat">{{ totals.courses }}</div><div class="muted small">active courses</div></div>
+    <div><div class="stat">{{ totals.students }}</div><div class="muted small">students</div></div>
+    <div><div class="stat">{{ totals.sessions_week }}</div><div class="muted small">sessions in the last 7 days</div></div>
+    <div><div class="stat">{{ totals.checkins_week }}</div><div class="muted small">check-ins in the last 7 days</div></div>
+    <div><div class="stat" style="color:{{ '#047857' if live else '#94a3b8' }}">{{ live|length }}</div><div class="muted small">live right now</div></div>
+  </div>
+</div>
+
+{% if live %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <h3 style="margin-bottom:.4rem">Live right now</h3>
+  <table>
+    <tr><th>Course</th><th>Session</th><th>Lecturer</th><th>Started</th><th>Checked in</th><th></th></tr>
+    {% for s in live %}
+    <tr><td><strong>{{ s.code }}</strong></td><td>{{ s.title }}</td><td>{{ s.lecturer }}</td>
+        <td class="muted small">{{ s.started_at|tm }} ({{ ((now - s.started_at)//60)|int }} min ago)</td>
+        <td>{{ s.n_present }} / {{ s.n_students }}</td>
+        <td style="white-space:nowrap"><a class="btn sm" href="{{ url_for('live_session', session_id=s.id) }}">Live screen</a> <a class="btn sm" href="{{ url_for('session_report', session_id=s.id) }}">Register</a></td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin-bottom:.4rem">Lecturers <span class="count">(<span id="lec-count">{{ lecturers|length }}</span>)</span></h3>
+  <p class="help" style="margin-top:0">Click a lecturer to see their courses, attendance rates and recent sessions. <em>Quiet</em> means no session in the last 14 days.</p>
+  <div class="search-row">
+    <div class="search-box"><input class="search" data-filter="#lecturers" data-count="#lec-count" placeholder="Search lecturer name or staff ID…" autocomplete="off"><button type="button" class="search-clear" aria-label="Clear search">&times;</button></div>
+    <div class="chips">
+      <button type="button" class="chip active" data-chip-for="#lecturers" data-status="">All</button>
+      <button type="button" class="chip" data-chip-for="#lecturers" data-status="live">Live now</button>
+      <button type="button" class="chip" data-chip-for="#lecturers" data-status="quiet">Quiet</button>
+      <button type="button" class="chip" data-chip-for="#lecturers" data-status="nocourses">No courses</button>
+      <button type="button" class="chip" data-chip-for="#lecturers" data-status="inactive">Deactivated</button>
+    </div>
+  </div>
+  {% if lecturers %}
+  <table id="lecturers">
+    <tr><th>Lecturer</th><th>Staff ID</th><th>Courses</th><th>Students</th><th>Sessions</th><th>This week</th><th>Last session</th><th></th></tr>
+    {% for l in lecturers %}
+    {% set quiet = l.n_courses and not l.n_live and (not l.last_session or now - l.last_session > 14*86400) %}
+    <tr data-status="{{ 'live' if l.n_live }} {{ 'quiet' if quiet }} {{ 'nocourses' if not l.n_courses }} {{ 'inactive' if not l.active }}">
+      <td><a href="{{ url_for('admin_lecturer', user_id=l.id) }}"><strong>{{ l.name }}</strong></a>
+          {% if l.n_live %} <span class="pill onair">Live</span>{% endif %}
+          {% if not l.active %} <span class="pill absent">deactivated</span>{% elif l.must_change_pw %} <span class="pill late" title="Still on the temporary password">temp password</span>{% endif %}</td>
+      <td class="muted">{{ l.matric }}</td>
+      <td>{{ l.n_courses }}</td><td>{{ l.n_students }}</td><td>{{ l.n_sessions }}</td><td>{{ l.n_sessions_week }}</td>
+      <td class="muted small">{% if l.last_session %}{{ l.last_session|dt }}{% if quiet %} <span class="pill late">quiet</span>{% endif %}{% else %}—{% endif %}</td>
+      <td style="white-space:nowrap"><a class="btn sm" href="{{ url_for('admin_lecturer', user_id=l.id) }}">Open</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No lecturer accounts yet. <a href="{{ url_for('admin_users') }}">Create one under Users.</a></p>{% endif %}
+</div>
+{% endblock %}

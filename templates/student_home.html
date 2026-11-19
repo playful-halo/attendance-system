@@ -1,0 +1,101 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}My attendance{% endblock %}
+{% block content %}
+<div class="row spread">
+  <h1>Hi, {{ user.name.split(' ')[0] }}</h1>
+  <a class="btn primary" href="{{ url_for('checkin') }}">Enter attendance code</a>
+</div>
+
+{% for c in courses if c.live_session %}
+{% if c.live_checked_at %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <div class="row spread">
+    <div><span class="pill present">Checked in</span> <strong>{{ c.code }}</strong> — you were marked present at {{ (c.live_checked_at|tm)[:5] }}. It is added to your total when the lecturer ends the session.</div>
+  </div>
+</div>
+{% else %}
+<div class="card" style="border-color:#93c5fd;background:#eff6ff">
+  <div class="row spread">
+    <div><span class="pill onair">Live</span> <strong>{{ c.code }}</strong> is taking attendance now — you have not checked in yet.</div>
+    <a class="btn primary" href="{{ url_for('checkin') }}">Check in</a>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+
+{% set searchable = courses|length >= 6 %}
+{% if searchable %}
+<div class="row spread" style="margin-bottom:.2rem">
+  <h3 style="margin:0">My courses <span class="count">(<span id="course-count">{{ courses|length }}</span>)</span></h3>
+</div>
+<div class="search-row">
+  <div class="search-box"><input class="search" data-filter="#courses" data-count="#course-count" placeholder="Search your courses… (code or title)" autocomplete="off" inputmode="search"><button type="button" class="search-clear" aria-label="Clear search">&times;</button></div>
+  <div class="chips">
+    <button type="button" class="chip active" data-chip-for="#courses" data-status="">All</button>
+    <button type="button" class="chip" data-chip-for="#courses" data-status="live">Live now</button>
+    <button type="button" class="chip" data-chip-for="#courses" data-status="low">Below 75%</button>
+  </div>
+</div>
+{% endif %}
+<div>
+<div class="grid" id="courses">
+{% for c in courses %}
+  {% set pct0 = (100 * c.attended / c.total_sessions) if c.total_sessions else 0 %}
+  <div class="card" data-search="{{ c.code }} {{ c.title }} {{ c.lecturer }}" data-status="{% if c.live_session %}live {% endif %}{% if c.total_sessions and pct0 < 75 %}low{% endif %}">
+    <h3>{{ c.code }} <small class="muted">· {{ c.title }}</small></h3>
+    <div class="muted small">{{ c.lecturer }}</div>
+    {% set pct = (100 * c.attended / c.total_sessions) if c.total_sessions else 0 %}
+    <div class="row spread" style="margin-top:.8rem">
+      <span class="stat">{{ pct|round|int }}%</span>
+      <span class="muted small">{{ c.attended }} / {{ c.total_sessions }} sessions</span>
+    </div>
+    <div class="bar"><span style="width:{{ pct }}%"></span></div>
+    {% if c.live_session %}
+    <div class="small" style="margin-top:.5rem">
+      {% if c.live_checked_at %}<span class="pill present">✓</span> Today's class: checked in at {{ (c.live_checked_at|tm)[:5] }}
+      {% else %}<span class="pill onair">Live</span> Today's class: <a href="{{ url_for('checkin') }}">not checked in yet</a>{% endif %}
+    </div>
+    {% endif %}
+    <details style="margin-top:.8rem">
+      <summary class="muted small" style="cursor:pointer">Leave this course</summary>
+      {% if c.live_session %}
+      <p class="help">Attendance is running right now - you can leave once the session has ended.</p>
+      {% else %}
+      <form method="post" action="{{ url_for('leave_course', course_id=c.id) }}" style="margin-top:.5rem">
+        <p class="help" style="margin:0 0 .4rem">Your past check-ins are kept and you can rejoin with the join code. Type <code>{{ c.code }}</code> to confirm.</p>
+        <div class="row">
+          <input name="confirm" placeholder="{{ c.code }}" required autocomplete="off" style="max-width:160px">
+          <button class="btn sm" onclick="return confirm('Leave {{ c.code }}?')">Leave course</button>
+        </div>
+      </form>
+      {% endif %}
+    </details>
+  </div>
+{% else %}
+  <div class="card muted">You're not enrolled in any course yet. Join one with the code from your lecturer.</div>
+{% endfor %}
+</div>
+<p class="no-match muted" style="display:none;margin:.6rem 0">No course matches — try the course code (e.g. CSC301) or part of the title.</p>
+</div>
+
+<div class="card">
+  <h3>Join a course</h3>
+  <form method="post" action="{{ url_for('join_course') }}" class="row">
+    <input name="join_code" placeholder="Join code, e.g. DSA301" required style="max-width:260px">
+    <button class="btn">Join</button>
+  </form>
+</div>
+
+{% if history %}
+<div class="card">
+  <h3>Recent check-ins</h3>
+  <table>
+    <tr><th>Course</th><th>Session</th><th>Time</th><th>Status</th></tr>
+    {% for h in history %}
+    <tr><td>{{ h.course_code }}</td><td>{{ h.session_title }}</td><td>{{ h.checked_at|dt }}</td>
+        <td><span class="pill {{ h.status }}">{{ h.status }}</span></td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endblock %}

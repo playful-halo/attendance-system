@@ -1,0 +1,19 @@
+{# Attendance System - Copyright (c) 2026 Mitchell-Fatunji Joshua. All rights reserved. -#}
+{% extends "base.html" %}{% block title %}Register{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Student registration</h2>
+  <form method="post">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Full name</label>
+    <input name="name" id="name" required autocomplete="name" placeholder="Surname Firstname">
+    <label>Matric number</label>
+    <input name="matric" id="matric" required autocomplete="username" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="CSC/2022/045">
+    <label>Password (min 6 characters)</label>
+    <input name="password" id="password" type="password" required minlength="6" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button class="btn primary block">Create account</button>
+  </form>
+  <p class="help center">Already registered? <a href="{{ url_for('login') }}">Log in</a></p>
+</div>
+{% endblock %}

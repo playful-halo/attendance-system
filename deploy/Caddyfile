@@ -1,0 +1,5 @@
+# Caddy reverse proxy with automatic free HTTPS (Let's Encrypt).
+# Point your domain's DNS A record at the server first.
+attendance.example.edu.ng {
+    reverse_proxy 127.0.0.1:8000
+}
